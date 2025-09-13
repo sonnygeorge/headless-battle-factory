@@ -10840,3 +10840,104 @@ SPECIES_INFOS = {
         noFlip=False,
     ),
 }
+
+
+def get_species_info(species: Species) -> SpeciesInfo:
+    """
+    Get species data from the species info database
+
+    Args:
+        species: The species to get data for
+
+    Returns:
+        SpeciesInfo object containing all species data, or default SpeciesInfo if not found
+    """
+    return SPECIES_INFOS.get(species, SPECIES_INFOS[Species.NONE])
+
+
+def get_base_stats(species: Species) -> tuple[int, int, int, int, int, int]:
+    """
+    Get base stats for a species
+
+    Args:
+        species: The species to get base stats for
+
+    Returns:
+        Tuple of (HP, Attack, Defense, Speed, SpAttack, SpDefense)
+    """
+    info = get_species_info(species)
+    return (info.baseHP, info.baseAttack, info.baseDefense, info.baseSpeed, info.baseSpAttack, info.baseSpDefense)
+
+
+def get_species_types(species: Species) -> list[Type]:
+    """
+    Get types for a species
+
+    Args:
+        species: The species to get types for
+
+    Returns:
+        List of types (usually 1-2 types)
+    """
+    info = get_species_info(species)
+    return info.types
+
+
+def get_species_abilities(species: Species) -> list[Ability]:
+    """
+    Get abilities for a species
+
+    Args:
+        species: The species to get abilities for
+
+    Returns:
+        List of abilities (usually 1-2 abilities)
+    """
+    info = get_species_info(species)
+    return info.abilities
+
+
+def get_species_ability(species: Species, ability_num: int) -> Ability:
+    """
+    Get specific ability for a species by ability number (0 or 1)
+
+    Args:
+        species: The species to get ability for
+        ability_num: Which ability slot (0 or 1)
+
+    Returns:
+        Ability enum value for the specified slot
+    """
+    abilities = get_species_abilities(species)
+    if 0 <= ability_num < len(abilities):
+        return abilities[ability_num]
+    return Ability.NONE
+
+
+def is_species_type(species: Species, type_to_check: Type) -> bool:
+    """
+    Check if a species has a specific type
+
+    Args:
+        species: The species to check
+        type_to_check: The type to check for
+
+    Returns:
+        True if species has the specified type, False otherwise
+    """
+    types = get_species_types(species)
+    return type_to_check in types
+
+
+def has_dual_type(species: Species) -> bool:
+    """
+    Check if a species has two different types
+
+    Args:
+        species: The species to check
+
+    Returns:
+        True if species has two different types, False if single type or no type
+    """
+    types = get_species_types(species)
+    return len(types) >= 2 and types[0] != types[1]

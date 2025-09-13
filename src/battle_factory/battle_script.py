@@ -1,8 +1,11 @@
 from enum import IntEnum
-from typing import Dict, List, Callable, Optional, Union
-from src.battle_factory.enums.move_effect import MoveEffect
+from src.battle_factory.enums import MoveEffect, HoldEffect, Ability, Species
 from src.battle_factory.damage_calculator import DamageCalculator
 from src.battle_factory.type_effectiveness import TypeEffectiveness
+from src.battle_factory.data.moves import get_move_effect, get_move_type
+from src.battle_factory.data.items import get_hold_effect
+from src.battle_factory.schema.battle_state import BattleState
+from src.battle_factory.schema.battle_pokemon import BattlePokemon
 
 
 class BattleScriptCommand(IntEnum):
@@ -95,12 +98,12 @@ class BattleScript:
         };
     """
 
-    def __init__(self, commands: List[Union[BattleScriptCommand, int]]):
+    def __init__(self, commands: list[BattleScriptCommand | int]):
         """
         Initialize battle script with command sequence
 
         Args:
-            commands: List of commands and arguments (ints are treated as raw bytes/args)
+            commands: list of commands and arguments (ints are treated as raw bytes/args)
         """
         self.commands = commands
         self.pc = 0  # Program counter (instruction pointer)
@@ -177,8 +180,8 @@ class BattleScriptInterpreter:
     """
     Battle script interpreter - mirrors the C implementation
 
-    This class executes battle scripts command by command, maintaining state
-    exactly like the original gBattlescriptCurrInstr system from pokeemerald.
+    This class executes battle scripts command by command, maintaining state like the
+    original gBattlescriptCurrInstr system from pokeemerald.
 
     Equivalent C functions:
     - RunBattleScriptCommands() - main script execution loop
@@ -194,17 +197,17 @@ class BattleScriptInterpreter:
         to maintain separation of concerns.
         """
         # Script execution stack (equivalent to gBattleResources->battleScriptsStack)
-        self.script_stack: List[BattleScript] = []
+        self.script_stack: list[BattleScript] = []
 
         # Current script being executed (equivalent to gBattlescriptCurrInstr)
-        self.current_script: Optional[BattleScript] = None
+        self.current_script: BattleScript | None = None
 
         # Damage calculator for script commands
         self.damage_calculator = DamageCalculator()
 
         # Command function dispatch table - maps opcodes to methods
         # This mirrors gBattleScriptingCommandsTable[] from C (lines 329-362)
-        self.command_table: Dict[BattleScriptCommand, str] = {
+        self.command_table: dict[BattleScriptCommand, str] = {
             # Core battle flow commands
             BattleScriptCommand.ATTACKCANCELER: "_cmd_attackcanceler",
             BattleScriptCommand.ACCURACYCHECK: "_cmd_accuracycheck",
@@ -252,7 +255,7 @@ class BattleScriptInterpreter:
             BattleScriptCommand.NOP: "_cmd_stub",
         }
 
-    def execute_script(self, script: BattleScript, battle_state) -> bool:
+    def execute_script(self, script: BattleScript, battle_state: BattleState) -> bool:
         """
         Execute a battle script - equivalent to BattleScriptExecute() in C
 
@@ -297,25 +300,11 @@ class BattleScriptInterpreter:
         return True
 
     def script_push(self, script: BattleScript) -> None:
-        """
-        Push script to stack - equivalent to BattleScriptPush() in C
-
-        C equivalent:
-            void BattleScriptPush(const u8 *bsPtr) {
-                gBattleResources->battleScriptsStack->ptr[gBattleResources->battleScriptsStack->size++] = bsPtr;
-            }
-        """
+        """Push script to stack - equivalent to BattleScriptPush() in C"""
         self.script_stack.append(self.current_script)
 
     def script_pop(self) -> None:
-        """
-        Pop script from stack - equivalent to BattleScriptPop() in C
-
-        C equivalent:
-            void BattleScriptPop(void) {
-                gBattlescriptCurrInstr = gBattleResources->battleScriptsStack->ptr[--gBattleResources->battleScriptsStack->size];
-            }
-        """
+        """Pop script from stack - equivalent to BattleScriptPop() in C"""
         if self.script_stack:
             self.current_script = self.script_stack.pop()
 
@@ -323,9 +312,9 @@ class BattleScriptInterpreter:
     # BATTLE SCRIPT COMMAND IMPLEMENTATIONS
     # ==========================================================================
     # Note: These methods will be implemented carefully in the next step
-    # Each one corresponds exactly to a Cmd_* function in battle_script_commands.c
+    # Each one corresponds to a Cmd_* function in battle_script_commands.c
 
-    def _cmd_attackcanceler(self, battle_state) -> bool:
+    def _cmd_attackcanceler(self, battle_state: BattleState) -> bool:
         """
         Check if attack should be cancelled - mirrors Cmd_attackcanceler()
 
@@ -336,7 +325,7 @@ class BattleScriptInterpreter:
         # For now, allow all attacks to proceed
         return True
 
-    def _cmd_accuracycheck(self, battle_state) -> bool:
+    def _cmd_accuracycheck(self, battle_state: BattleState) -> bool:
         """
         Check move accuracy - mirrors Cmd_accuracycheck()
 
@@ -346,7 +335,7 @@ class BattleScriptInterpreter:
         # For now, assume all moves hit
         return True
 
-    def _cmd_attackstring(self, battle_state) -> bool:
+    def _cmd_attackstring(self, battle_state: BattleState) -> bool:
         """
         Print attack message - mirrors Cmd_attackstring()
 
@@ -356,7 +345,7 @@ class BattleScriptInterpreter:
         # Stub for headless operation
         return True
 
-    def _cmd_ppreduce(self, battle_state) -> bool:
+    def _cmd_ppreduce(self, battle_state: BattleState) -> bool:
         """
         Reduce PP - mirrors Cmd_ppreduce()
 
@@ -365,33 +354,95 @@ class BattleScriptInterpreter:
         # TODO: Implement PP reduction
         return True
 
-    def _cmd_critcalc(self, battle_state) -> bool:
+    def _cmd_critcalc(self, battle_state: BattleState) -> bool:
         """
-        Calculate critical hit - mirrors Cmd_critcalc()
+        Calculate critical hit chance and set critical multiplier.
 
-        C location: src/battle_script_commands.c line ~1200
+        C equivalent: src/battle_script_commands.c lines 1253-1288
+
+        This command determines if the current move will be a critical hit based on
+        various factors like Focus Energy, high-crit moves, held items, and abilities.
+
+        Args:
+            battle_state: Current battle state containing attacker, target, move, and RNG seed.
+                         Must have battler_attacker, battler_target, current_move, and rng_seed set.
+
+        Returns:
+            bool: Always True (command never pauses). The critical hit result is stored
+                  in battle_state.critical_multiplier (1 = normal hit, 2 = critical hit).
+
+        Modifies:
+            battle_state.critical_multiplier: Set to 1 (normal) or 2 (critical hit)
+            battle_state.rng_seed: Updated for deterministic random number generation
         """
-        # TODO: Implement critical hit calculation
+
+        # Get attacker and their item
+        attacker = battle_state.battlers[battle_state.battler_attacker]
+        if attacker is None:
+            battle_state.critical_multiplier = 1
+            return True
+
+        # Get hold effect from item
+        hold_effect = get_hold_effect(attacker.item)
+
+        # Calculate critical hit chance - exact formula from C code
+        crit_chance = 0
+
+        # Focus Energy adds +2 (STATUS2_FOCUS_ENERGY)
+        if attacker.status2.has_focus_energy():
+            crit_chance += 2
+
+        # High crit moves add +1 (EFFECT_HIGH_CRITICAL)
+        move_effect = get_move_effect(battle_state.current_move)
+        if move_effect == MoveEffect.HIGH_CRITICAL:
+            crit_chance += 1
+
+        # Special move effects that boost crit chance
+        if move_effect == MoveEffect.SKY_ATTACK:
+            crit_chance += 1
+        if move_effect == MoveEffect.BLAZE_KICK:
+            crit_chance += 1
+        if move_effect == MoveEffect.POISON_TAIL:
+            crit_chance += 1
+
+        # Hold effects
+        if hold_effect == HoldEffect.SCOPE_LENS:
+            crit_chance += 1
+        if hold_effect == HoldEffect.LUCKY_PUNCH and attacker.species == Species.CHANSEY:
+            crit_chance += 2
+        if hold_effect == HoldEffect.STICK and attacker.species == Species.FARFETCHD:
+            crit_chance += 2
+
+        # Clamp to valid range (sCriticalHitChance array has 5 elements)
+        CRIT_CHANCE_TABLE = [16, 8, 4, 3, 2]  # 1/N chance from original C code
+        if crit_chance >= len(CRIT_CHANCE_TABLE):
+            crit_chance = len(CRIT_CHANCE_TABLE) - 1
+
+        # Check for crit prevention abilities
+        defender = battle_state.battlers[battle_state.battler_target]
+        if defender is not None and defender.ability in [Ability.BATTLE_ARMOR, Ability.SHELL_ARMOR]:
+            battle_state.critical_multiplier = 1
+            return True
+
+        # Check for other crit prevention (status3 flags, tutorial battles, etc.)
+        # TODO: Implement STATUS3_CANT_SCORE_A_CRIT, tutorial battle flags
+        # For now, skip these checks as they're not relevant to Battle Factory
+
+        # Roll for critical hit using battle state RNG
+        if self._random_crit_roll(battle_state) % CRIT_CHANCE_TABLE[crit_chance] == 0:
+            battle_state.critical_multiplier = 2
+        else:
+            battle_state.critical_multiplier = 1
+
         return True
 
-    def _cmd_damagecalc(self, battle_state) -> bool:
-        """
-        Calculate damage - mirrors Cmd_damagecalc()
-
-        C location: src/battle_script_commands.c lines 1290-1304
-
-        C code:
-            u16 sideStatus = gSideStatuses[GET_BATTLER_SIDE(gBattlerTarget)];
-            gBattleMoveDamage = CalculateBaseDamage(&gBattleMons[gBattlerAttacker], &gBattleMons[gBattlerTarget],
-                                                    gCurrentMove, sideStatus, gDynamicBasePower,
-                                                    gBattleStruct->dynamicMoveType, gBattlerAttacker, gBattlerTarget);
-            gBattleMoveDamage = gBattleMoveDamage * gCritMultiplier * gBattleScripting.dmgMultiplier;
-        """
+    def _cmd_damagecalc(self, battle_state: BattleState) -> bool:
+        """Calculate damage - mirrors Cmd_damagecalc()"""
         # Get attacker and defender
         attacker = battle_state.battlers[battle_state.battler_attacker]
         defender = battle_state.battlers[battle_state.battler_target]
 
-        if not attacker or not defender:
+        if attacker is None or defender is None:
             battle_state.battle_move_damage = 0
             return True
 
@@ -428,7 +479,7 @@ class BattleScriptInterpreter:
 
         return True
 
-    def _cmd_typecalc(self, battle_state) -> bool:
+    def _cmd_typecalc(self, battle_state: BattleState) -> bool:
         """
         Calculate type effectiveness - mirrors ModulateDmgByType()
 
@@ -440,17 +491,11 @@ class BattleScriptInterpreter:
         attacker = battle_state.battlers[battle_state.battler_attacker]
         defender = battle_state.battlers[battle_state.battler_target]
 
-        if not attacker or not defender:
+        if attacker is None or defender is None:
             return True
 
         # Get move type (TODO: handle type-changing abilities/items)
-        from src.battle_factory.damage_calculator import get_move_data
-
-        move_data = get_move_data(battle_state.current_move)
-        if not move_data:
-            return True
-
-        move_type = move_data.type
+        move_type = get_move_type(battle_state.current_move)
 
         # Calculate against both types (handles single or dual-type Pokemon)
         effectiveness = TypeEffectiveness.calculate_effectiveness(
@@ -466,7 +511,7 @@ class BattleScriptInterpreter:
 
         return True
 
-    def _cmd_adjustnormaldamage(self, battle_state) -> bool:
+    def _cmd_adjustnormaldamage(self, battle_state: BattleState) -> bool:
         """
         Apply damage modifiers - mirrors Cmd_adjustnormaldamage()
 
@@ -476,17 +521,11 @@ class BattleScriptInterpreter:
         """
         # Get attacker for STAB check
         attacker = battle_state.battlers[battle_state.battler_attacker]
-        if not attacker:
+        if attacker is None:
             return True
 
         # Get move type
-        from src.battle_factory.damage_calculator import get_move_data
-
-        move_data = get_move_data(battle_state.current_move)
-        if not move_data:
-            return True
-
-        move_type = move_data.type
+        move_type = get_move_type(battle_state.current_move)
 
         # Apply STAB (Same Type Attack Bonus) - 1.5x damage
         if move_type in attacker.types:
@@ -503,7 +542,7 @@ class BattleScriptInterpreter:
 
         return True
 
-    def _cmd_adjustnormaldamage2(self, battle_state) -> bool:
+    def _cmd_adjustnormaldamage2(self, battle_state: BattleState) -> bool:
         """
         Apply additional damage modifiers - mirrors Cmd_adjustnormaldamage2()
 
@@ -512,7 +551,7 @@ class BattleScriptInterpreter:
         # TODO: Implement additional damage modifiers (STAB, items, abilities)
         return True
 
-    def _cmd_datahpupdate(self, battle_state) -> bool:
+    def _cmd_datahpupdate(self, battle_state: BattleState) -> bool:
         """
         Update HP data - mirrors Cmd_datahpupdate()
 
@@ -522,7 +561,7 @@ class BattleScriptInterpreter:
         """
         # Get target Pokemon
         target = battle_state.battlers[battle_state.battler_target]
-        if not target:
+        if target is None:
             return True
 
         # Apply damage to target's HP
@@ -531,7 +570,7 @@ class BattleScriptInterpreter:
 
         return True
 
-    def _cmd_tryfaintmon(self, battle_state) -> bool:
+    def _cmd_tryfaintmon(self, battle_state: BattleState) -> bool:
         """
         Check if Pokemon should faint - mirrors Cmd_tryfaintmon()
 
@@ -541,7 +580,7 @@ class BattleScriptInterpreter:
         """
         # Get target Pokemon
         target = battle_state.battlers[battle_state.battler_target]
-        if not target:
+        if target is None:
             return True
 
         # Check if Pokemon has fainted
@@ -552,27 +591,27 @@ class BattleScriptInterpreter:
 
         return True
 
-    def _cmd_seteffectwithchance(self, battle_state) -> bool:
+    def _cmd_seteffectwithchance(self, battle_state: BattleState) -> bool:
         """Set move effect with chance - mirrors Cmd_seteffectwithchance()"""
         # TODO: Implement secondary effect chances
         return True
 
-    def _cmd_seteffectprimary(self, battle_state) -> bool:
+    def _cmd_seteffectprimary(self, battle_state: BattleState) -> bool:
         """Set primary effect - mirrors Cmd_seteffectprimary()"""
         # TODO: Implement primary move effects
         return True
 
-    def _cmd_seteffectsecondary(self, battle_state) -> bool:
+    def _cmd_seteffectsecondary(self, battle_state: BattleState) -> bool:
         """Set secondary effect - mirrors Cmd_seteffectsecondary()"""
         # TODO: Implement secondary move effects
         return True
 
-    def _cmd_clearstatusfromeffect(self, battle_state) -> bool:
+    def _cmd_clearstatusfromeffect(self, battle_state: BattleState) -> bool:
         """Clear status from effect - mirrors Cmd_clearstatusfromeffect()"""
         # TODO: Implement status clearing
         return True
 
-    def _cmd_cleareffectsonfaint(self, battle_state) -> bool:
+    def _cmd_cleareffectsonfaint(self, battle_state: BattleState) -> bool:
         """Clear effects when fainting - mirrors Cmd_cleareffectsonfaint()"""
         # TODO: Clear all temporary effects on the fainted Pokemon
         return True
@@ -581,7 +620,7 @@ class BattleScriptInterpreter:
     # CONDITIONAL COMMANDS (read arguments from script)
     # ==========================================================================
 
-    def _cmd_jumpifstatus(self, battle_state) -> bool:
+    def _cmd_jumpifstatus(self, battle_state: BattleState) -> bool:
         """
         Jump if status condition - mirrors Cmd_jumpifstatus()
 
@@ -597,7 +636,7 @@ class BattleScriptInterpreter:
 
         return True
 
-    def _cmd_jumpifstatus2(self, battle_state) -> bool:
+    def _cmd_jumpifstatus2(self, battle_state: BattleState) -> bool:
         """Jump if status2 condition - mirrors Cmd_jumpifstatus2()"""
         battler_byte = self.current_script.read_byte()
         status_byte = self.current_script.read_byte()
@@ -606,7 +645,7 @@ class BattleScriptInterpreter:
         # TODO: Implement status2 checking
         return True
 
-    def _cmd_jumpifability(self, battle_state) -> bool:
+    def _cmd_jumpifability(self, battle_state: BattleState) -> bool:
         """Jump if ability - mirrors Cmd_jumpifability()"""
         battler_byte = self.current_script.read_byte()
         ability_byte = self.current_script.read_byte()
@@ -615,7 +654,7 @@ class BattleScriptInterpreter:
         # TODO: Implement ability checking
         return True
 
-    def _cmd_jumpifsideaffecting(self, battle_state) -> bool:
+    def _cmd_jumpifsideaffecting(self, battle_state: BattleState) -> bool:
         """Jump if side effect - mirrors Cmd_jumpifsideaffecting()"""
         side_byte = self.current_script.read_byte()
         effect_word = self.current_script.read_word()
@@ -628,7 +667,7 @@ class BattleScriptInterpreter:
     # CONTROL FLOW COMMANDS
     # ==========================================================================
 
-    def _cmd_call(self, battle_state) -> bool:
+    def _cmd_call(self, battle_state: BattleState) -> bool:
         """
         Call subroutine - mirrors Cmd_call()
 
@@ -650,7 +689,7 @@ class BattleScriptInterpreter:
 
         return True
 
-    def _cmd_goto(self, battle_state) -> bool:
+    def _cmd_goto(self, battle_state: BattleState) -> bool:
         """
         Unconditional jump - mirrors Cmd_goto()
 
@@ -660,7 +699,7 @@ class BattleScriptInterpreter:
         self.current_script.jump_to(jump_addr)
         return True
 
-    def _cmd_return(self, battle_state) -> bool:
+    def _cmd_return(self, battle_state: BattleState) -> bool:
         """
         Return from subroutine - mirrors Cmd_return()
 
@@ -674,7 +713,7 @@ class BattleScriptInterpreter:
         self.script_pop()
         return True
 
-    def _cmd_end(self, battle_state) -> bool:
+    def _cmd_end(self, battle_state: BattleState) -> bool:
         """
         End script - mirrors Cmd_end()
 
@@ -684,13 +723,34 @@ class BattleScriptInterpreter:
         self.current_script.pc = len(self.current_script.commands)
         return True
 
-    def _cmd_pause(self, battle_state) -> bool:
+    def _cmd_pause(self, battle_state: BattleState) -> bool:
         """Pause execution - returns False to pause interpreter"""
         return False
 
-    def _cmd_stub(self, battle_state) -> bool:
+    def _cmd_stub(self, battle_state: BattleState) -> bool:
         """Stub for unimplemented/skipped commands (animations, etc.)"""
         return True
+
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+
+    def _random_crit_roll(self, battle_state: BattleState) -> int:
+        """
+        Generate random number for critical hit calculation using battle RNG
+
+        This uses the same RNG system as the original game for deterministic results.
+
+        Args:
+            battle_state: Current battle state containing RNG seed
+
+        Returns:
+            Random integer for crit calculation
+        """
+        # Use Linear Congruential Generator (LCG) for deterministic random numbers
+        # This matches the Random() function behavior in the original game
+        battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
+        return battle_state.rng_seed
 
 
 class BattleScriptLibrary:
@@ -711,7 +771,7 @@ class BattleScriptLibrary:
 
     def __init__(self):
         """Initialize the battle script library with all move effect scripts"""
-        self.scripts: Dict[MoveEffect, BattleScript] = {
+        self.scripts: dict[MoveEffect, BattleScript] = {
             # =================================================================
             # BASIC DAMAGE MOVES
             # =================================================================

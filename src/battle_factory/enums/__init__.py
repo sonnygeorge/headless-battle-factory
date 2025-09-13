@@ -6,3 +6,4 @@ from src.battle_factory.enums.ability import Ability
 from src.battle_factory.enums.item import Item
 from src.battle_factory.enums.status import Status1, Status2
 from src.battle_factory.enums.other import GrowthRate, EggGroup, BodyColor, KnockedOffTracker
+from src.battle_factory.enums.hold_effect import HoldEffect

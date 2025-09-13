@@ -7,17 +7,18 @@ This module implements the exact damage calculation logic from:
 
 Key design principles:
 - 1:1 faithfulness to C code logic and order
-- All constants and formulas exactly match original
+- Constants and formulas match original
 - Stat stage calculations use exact ratios from gStatStageRatios
 - Weather, abilities, items, and side effects properly handled
 """
 
 from typing import Optional
 
-from src.battle_factory.schema import BattlePokemon, BattleMove
-from src.battle_factory.data import BATTLE_MOVES
+from src.battle_factory.schema.battle_pokemon import BattlePokemon
+from src.battle_factory.schema.battle_move import BattleMove
 from src.battle_factory.enums import Move, Type, Ability, Item, Status1, Species
 from src.battle_factory.type_effectiveness import TypeEffectiveness
+from src.battle_factory.data.moves import BATTLE_MOVES, get_move_data, get_move_type
 
 
 # Constants from pokeemerald/include/constants/pokemon.h
@@ -69,11 +70,6 @@ def is_type_physical(move_type: Type) -> bool:
 def is_type_special(move_type: Type) -> bool:
     """Check if move type is special (pre-Gen 4 physical/special split)"""
     return not is_type_physical(move_type)
-
-
-def get_move_data(move: Move) -> Optional[BattleMove]:
-    """Get move data from database - placeholder implementation"""
-    return BATTLE_MOVES.get(move)
 
 
 class DamageCalculator:
@@ -133,7 +129,7 @@ class DamageCalculator:
         if type_override:
             move_type = type_override
         else:
-            move_type = move_data.type
+            move_type = get_move_type(move)
 
         # Get base stats (lines 3129-3132)
         attack = attacker.attack

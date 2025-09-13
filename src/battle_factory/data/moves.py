@@ -3909,3 +3909,112 @@ BATTLE_MOVES = {
         flags=MoveFlag.PROTECT_AFFECTED | MoveFlag.MIRROR_MOVE_AFFECTED | MoveFlag.KINGS_ROCK_AFFECTED,
     ),
 }
+
+
+def get_move_data(move: Move) -> BattleMove:
+    """
+    Get move data from the battle moves database
+
+    Args:
+        move: The move to get data for
+
+    Returns:
+        BattleMove object containing all move data, or default BattleMove if not found
+    """
+    return BATTLE_MOVES.get(move, BATTLE_MOVES[Move.NONE])
+
+
+def get_move_effect(move: Move) -> MoveEffect:
+    """
+    Get move effect from move data
+
+    Args:
+        move: The move to get effect for
+
+    Returns:
+        MoveEffect enum value for the move
+    """
+    move_data = get_move_data(move)
+    return move_data.effect
+
+
+def get_move_power(move: Move) -> int:
+    """
+    Get move power
+
+    Args:
+        move: The move to get power for
+
+    Returns:
+        Power value for the move
+    """
+    move_data = get_move_data(move)
+    return move_data.power
+
+
+def get_move_type(move: Move) -> Type:
+    """
+    Get move type
+
+    Args:
+        move: The move to get type for
+
+    Returns:
+        Type enum value for the move
+    """
+    move_data = get_move_data(move)
+    return move_data.type
+
+
+def get_move_accuracy(move: Move) -> int:
+    """
+    Get move accuracy
+
+    Args:
+        move: The move to get accuracy for
+
+    Returns:
+        Accuracy value for the move (0-100)
+    """
+    move_data = get_move_data(move)
+    return move_data.accuracy
+
+
+def has_move_effect(move: Move, effect: MoveEffect) -> bool:
+    """
+    Check if a move has a specific effect
+
+    Args:
+        move: The move to check
+        effect: The effect to check for
+
+    Returns:
+        True if move has the specified effect, False otherwise
+    """
+    return get_move_effect(move) == effect
+
+
+def is_high_crit_move(move: Move) -> bool:
+    """
+    Check if a move has high critical hit ratio
+
+    Args:
+        move: The move to check
+
+    Returns:
+        True if move has high crit ratio, False otherwise
+    """
+    return has_move_effect(move, MoveEffect.HIGH_CRITICAL)
+
+
+def is_multi_hit_move(move: Move) -> bool:
+    """
+    Check if a move hits multiple times
+
+    Args:
+        move: The move to check
+
+    Returns:
+        True if move hits multiple times, False otherwise
+    """
+    return has_move_effect(move, MoveEffect.MULTI_HIT)

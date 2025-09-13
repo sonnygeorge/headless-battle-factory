@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 
 from src.battle_factory.enums import Move
+from src.battle_factory.schema.battle_pokemon import BattlePokemon
 
 
 class DisableStruct(BaseModel):
@@ -150,3 +151,116 @@ class WishFutureKnock(BaseModel):
 
     # Knock Off tracking (2 sides)
     knockedOffMons: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)  # u8[NUM_BATTLE_SIDES] - bitmask per side
+
+
+class BattleState(BaseModel):
+    """
+    Complete Battle State for headless Battle Factory
+
+    This consolidates all the battle state that was previously scattered across
+    80+ global variables in the C code. Each field corresponds to specific
+    C globals from battle_main.c and battle_script_commands.c
+
+    Key design principles:
+    - No GUI/animation state (removed gAnimScriptCallback, etc.)
+    - No experience/learning (removed gExpShareLevel, etc.)
+    - Focus on core battle mechanics only
+    """
+
+    # =================================================================
+    # CORE BATTLE FLOW STATE
+    # =================================================================
+
+    # Current action battlers - mirrors gBattlerAttacker, gBattlerTarget, etc.
+    battler_attacker: int = Field(ge=0, le=3, default=0)
+    battler_target: int = Field(ge=0, le=3, default=1)
+    current_move: Move = Field(default=Move.NONE)
+    battle_move_damage: int = Field(ge=-2147483648, le=2147483647, default=0)
+
+    # Battle outcome tracking
+    battle_outcome: int = Field(ge=0, le=7, default=0)  # B_OUTCOME constants
+
+    # Turn and phase management
+    turn_count: int = Field(ge=0, default=0)
+    battle_phase: int = Field(ge=0, le=10, default=0)
+
+    # Critical hit and type effectiveness multipliers
+    critical_multiplier: int = Field(ge=0, le=4, default=1)
+    type_effectiveness: int = Field(ge=0, le=40, default=10)  # 10 = normal effectiveness
+
+    # Random number seed state (for deterministic testing)
+    rng_seed: int = Field(ge=0, le=0xFFFFFFFF, default=0)
+
+    # =================================================================
+    # POKEMON DATA (4 battler slots)
+    # =================================================================
+
+    # Battle Pokemon for each battler position
+    # battlers[0] = Player Pokemon 1, battlers[1] = Opponent Pokemon 1
+    # battlers[2] = Player Pokemon 2 (doubles), battlers[3] = Opponent Pokemon 2 (doubles)
+    battlers: list[BattlePokemon | None] = Field(default_factory=lambda: [None, None, None, None], min_length=4, max_length=4)
+
+    # Move disable/restrict state for each battler
+    disable_structs: list[DisableStruct] = Field(default_factory=lambda: [DisableStruct() for _ in range(4)], min_length=4, max_length=4)
+
+    # Protect/endure state for each battler
+    protect_structs: list[ProtectStruct] = Field(default_factory=lambda: [ProtectStruct() for _ in range(4)], min_length=4, max_length=4)
+
+    # Special status effects for each battler
+    special_statuses: list[SpecialStatus] = Field(default_factory=lambda: [SpecialStatus() for _ in range(4)], min_length=4, max_length=4)
+
+    # =================================================================
+    # SIDE EFFECTS (Player side vs Opponent side)
+    # =================================================================
+
+    # Side status effects - [player_side, opponent_side]
+    side_statuses: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)  # Bitmask of SIDE_STATUS_* constants
+
+    # Reflect/Light Screen timers - [player_side, opponent_side]
+    reflect_timers: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
+
+    light_screen_timers: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
+
+    # Spikes layers - [player_side, opponent_side]
+    spikes_layers: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
+
+    # =================================================================
+    # FIELD CONDITIONS
+    # =================================================================
+
+    # Weather state
+    weather: int = Field(ge=0, le=15, default=0)  # WEATHER_* constants
+    weather_timer: int = Field(ge=0, le=255, default=0)
+
+    # Terrain state (if implementing Gen 6+ features)
+    terrain: int = Field(ge=0, le=15, default=0)  # TERRAIN_* constants
+    terrain_timer: int = Field(ge=0, le=255, default=0)
+
+    # Field effects
+    trick_room_timer: int = Field(ge=0, le=255, default=0)
+    gravity_timer: int = Field(ge=0, le=255, default=0)
+
+    # =================================================================
+    # TURN ORDER AND SPEED
+    # =================================================================
+
+    # Turn order for this turn (list of battler IDs sorted by speed/priority)
+    turn_order: list[int] = Field(default_factory=list)
+
+    # Current action index in turn_order
+    current_action_index: int = Field(ge=0, default=0)
+
+    # =================================================================
+    # BATTLE SCRIPT EXECUTION STATE
+    # =================================================================
+
+    # Script execution context (for damage calculations, etc.)
+    script_attacker: int = Field(ge=0, le=3, default=0)
+    script_target: int = Field(ge=0, le=3, default=1)
+    script_damage: int = Field(default=0)
+    script_critical_hit: bool = Field(default=False)
+    script_type_effectiveness: int = Field(ge=0, le=40, default=10)
+
+    class Config:
+        # Allow mutation for battle state updates
+        frozen = False
