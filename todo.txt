@@ -1,1 +1,0 @@
-- Remove all battle-factory-irrelevant data from SPECIES_INFOS and SpeciesInfo
