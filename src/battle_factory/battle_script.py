@@ -1,6 +1,8 @@
 from enum import IntEnum
 from typing import Dict, List, Callable, Optional, Union
 from src.battle_factory.enums.move_effect import MoveEffect
+from src.battle_factory.damage_calculator import DamageCalculator
+from src.battle_factory.type_effectiveness import TypeEffectiveness
 
 
 class BattleScriptCommand(IntEnum):
@@ -197,6 +199,9 @@ class BattleScriptInterpreter:
         # Current script being executed (equivalent to gBattlescriptCurrInstr)
         self.current_script: Optional[BattleScript] = None
 
+        # Damage calculator for script commands
+        self.damage_calculator = DamageCalculator()
+
         # Command function dispatch table - maps opcodes to methods
         # This mirrors gBattleScriptingCommandsTable[] from C (lines 329-362)
         self.command_table: Dict[BattleScriptCommand, str] = {
@@ -373,10 +378,54 @@ class BattleScriptInterpreter:
         """
         Calculate damage - mirrors Cmd_damagecalc()
 
-        C location: src/battle_script_commands.c line ~1290
-        This is the core damage calculation command
+        C location: src/battle_script_commands.c lines 1290-1304
+
+        C code:
+            u16 sideStatus = gSideStatuses[GET_BATTLER_SIDE(gBattlerTarget)];
+            gBattleMoveDamage = CalculateBaseDamage(&gBattleMons[gBattlerAttacker], &gBattleMons[gBattlerTarget],
+                                                    gCurrentMove, sideStatus, gDynamicBasePower,
+                                                    gBattleStruct->dynamicMoveType, gBattlerAttacker, gBattlerTarget);
+            gBattleMoveDamage = gBattleMoveDamage * gCritMultiplier * gBattleScripting.dmgMultiplier;
         """
-        # TODO: Implement damage calculation by porting CalculateBaseDamage()
+        # Get attacker and defender
+        attacker = battle_state.battlers[battle_state.battler_attacker]
+        defender = battle_state.battlers[battle_state.battler_target]
+
+        if not attacker or not defender:
+            battle_state.battle_move_damage = 0
+            return True
+
+        # Get defender's side status (Reflect, Light Screen, etc.)
+        defender_side = battle_state.battler_target % 2  # 0 = player side, 1 = opponent side
+        side_status = battle_state.side_statuses[defender_side]
+
+        # Calculate base damage using damage calculator
+        base_damage = self.damage_calculator.calculate_base_damage(
+            attacker=attacker,
+            defender=defender,
+            move=battle_state.current_move,
+            side_status=side_status,
+            power_override=0,
+            type_override=None,
+            attacker_id=battle_state.battler_attacker,
+            defender_id=battle_state.battler_target,
+            critical_multiplier=battle_state.critical_multiplier,
+            weather=battle_state.weather,
+        )  # TODO: Handle gDynamicBasePower  # TODO: Handle gBattleStruct->dynamicMoveType
+
+        # Apply final modifiers (critical hit, damage multiplier)
+        final_damage = self.damage_calculator.apply_final_damage_modifiers(
+            base_damage=base_damage,
+            critical_multiplier=battle_state.critical_multiplier,
+            dmg_multiplier=1,
+            attacker=attacker,
+            move=battle_state.current_move,
+        )  # TODO: Handle gBattleScripting.dmgMultiplier
+
+        # Store result in battle state
+        battle_state.battle_move_damage = final_damage
+        battle_state.script_damage = final_damage
+
         return True
 
     def _cmd_typecalc(self, battle_state) -> bool:
@@ -384,8 +433,37 @@ class BattleScriptInterpreter:
         Calculate type effectiveness - mirrors ModulateDmgByType()
 
         C location: src/battle_script_commands.c line ~1321
+
+        This command applies type effectiveness to the current damage value.
         """
-        # TODO: Implement type effectiveness calculation
+        # Get attacker and defender
+        attacker = battle_state.battlers[battle_state.battler_attacker]
+        defender = battle_state.battlers[battle_state.battler_target]
+
+        if not attacker or not defender:
+            return True
+
+        # Get move type (TODO: handle type-changing abilities/items)
+        from src.battle_factory.damage_calculator import get_move_data
+
+        move_data = get_move_data(battle_state.current_move)
+        if not move_data:
+            return True
+
+        move_type = move_data.type
+
+        # Calculate against both types (handles single or dual-type Pokemon)
+        effectiveness = TypeEffectiveness.calculate_effectiveness(
+            attacking_type=move_type,
+            defending_type1=defender.types[0],
+            defending_type2=defender.types[1] if defender.types[1] != defender.types[0] else None,
+        )
+
+        # Apply type effectiveness to damage
+        battle_state.battle_move_damage = (battle_state.battle_move_damage * effectiveness) // 10
+        battle_state.type_effectiveness = effectiveness
+        battle_state.script_type_effectiveness = effectiveness
+
         return True
 
     def _cmd_adjustnormaldamage(self, battle_state) -> bool:
@@ -393,8 +471,36 @@ class BattleScriptInterpreter:
         Apply damage modifiers - mirrors Cmd_adjustnormaldamage()
 
         C location: src/battle_script_commands.c line ~1600
+
+        This applies STAB, random damage factor, and other final modifiers.
         """
-        # TODO: Implement damage adjustments (crit, random factor, etc.)
+        # Get attacker for STAB check
+        attacker = battle_state.battlers[battle_state.battler_attacker]
+        if not attacker:
+            return True
+
+        # Get move type
+        from src.battle_factory.damage_calculator import get_move_data
+
+        move_data = get_move_data(battle_state.current_move)
+        if not move_data:
+            return True
+
+        move_type = move_data.type
+
+        # Apply STAB (Same Type Attack Bonus) - 1.5x damage
+        if move_type in attacker.types:
+            battle_state.battle_move_damage = (battle_state.battle_move_damage * 15) // 10
+
+        # Apply random damage factor (85-100% of calculated damage)
+        # In the original game: damage = damage * random(85, 100) / 100
+        # For now, use a fixed 92% to maintain determinism
+        battle_state.battle_move_damage = (battle_state.battle_move_damage * 92) // 100
+
+        # Ensure minimum damage of 1
+        if battle_state.battle_move_damage < 1:
+            battle_state.battle_move_damage = 1
+
         return True
 
     def _cmd_adjustnormaldamage2(self, battle_state) -> bool:
@@ -411,8 +517,18 @@ class BattleScriptInterpreter:
         Update HP data - mirrors Cmd_datahpupdate()
 
         C location: src/battle_script_commands.c line ~1800
+
+        This command applies the calculated damage to the target's HP.
         """
-        # TODO: Implement HP updates
+        # Get target Pokemon
+        target = battle_state.battlers[battle_state.battler_target]
+        if not target:
+            return True
+
+        # Apply damage to target's HP
+        damage = battle_state.battle_move_damage
+        target.hp = max(0, target.hp - damage)
+
         return True
 
     def _cmd_tryfaintmon(self, battle_state) -> bool:
@@ -420,8 +536,20 @@ class BattleScriptInterpreter:
         Check if Pokemon should faint - mirrors Cmd_tryfaintmon()
 
         C location: src/battle_script_commands.c line ~2000
+
+        This command checks if the target Pokemon has fainted (HP <= 0).
         """
-        # TODO: Implement faint checking
+        # Get target Pokemon
+        target = battle_state.battlers[battle_state.battler_target]
+        if not target:
+            return True
+
+        # Check if Pokemon has fainted
+        if target.hp <= 0:
+            target.hp = 0
+            # TODO: Set faint status, clear temporary effects, etc.
+            # For now, just ensure HP is exactly 0
+
         return True
 
     def _cmd_seteffectwithchance(self, battle_state) -> bool:
