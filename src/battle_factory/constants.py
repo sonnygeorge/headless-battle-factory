@@ -1,3 +1,6 @@
+# In Emerald, player-set weather via moves lasts 5 turns
+WEATHER_DEFAULT_DURATION = 5
+
 # =============================================================================
 # STAT STAGE CONSTANTS - from include/constants/pokemon.h (lines 89-91)
 # =============================================================================
@@ -189,6 +192,33 @@ MOVE_UNAVAILABLE = 0xFFFF
 
 # Target override constant - from include/battle.h line 53
 NO_TARGET_OVERRIDE = 0
+
+# =============================================================================
+# MOVE RESULT FLAGS - from include/constants/battle.h (lines 218-227)
+# =============================================================================
+MOVE_RESULT_MISSED = 1 << 0
+MOVE_RESULT_SUPER_EFFECTIVE = 1 << 1
+MOVE_RESULT_NOT_VERY_EFFECTIVE = 1 << 2
+MOVE_RESULT_DOESNT_AFFECT_FOE = 1 << 3
+MOVE_RESULT_ONE_HIT_KO = 1 << 4
+MOVE_RESULT_FAILED = 1 << 5
+MOVE_RESULT_FOE_ENDURED = 1 << 6
+MOVE_RESULT_FOE_HUNG_ON = 1 << 7
+MOVE_RESULT_NO_EFFECT = MOVE_RESULT_MISSED | MOVE_RESULT_DOESNT_AFFECT_FOE | MOVE_RESULT_FAILED
+
+# =============================================================================
+# HIT MARKER FLAGS - from include/constants/battle.h (lines 229-246)
+# =============================================================================
+HITMARKER_NO_ATTACKSTRING = 1 << 0
+HITMARKER_ATTACKSTRING_PRINTED = 1 << 1
+HITMARKER_NO_PPDEDUCT = 1 << 2
+HITMARKER_SWAP_ATTACKER_TARGET = 1 << 3
+HITMARKER_IGNORE_PP = 1 << 4
+HITMARKER_PROTECT_AFFECTED = 1 << 5
+HITMARKER_NO_ANIMATIONS = 1 << 6
+HITMARKER_IGNORE_SUBSTITUTE = 1 << 7
+HITMARKER_NO_ATTACKSTRING_2 = 1 << 8
+HITMARKER_NO_ATTACKSTRING_3 = 1 << 9
 
 # =============================================================================
 # BATTLE MESSAGES - from various battle text files

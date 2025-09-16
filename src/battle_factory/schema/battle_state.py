@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from src.battle_factory.enums import Move
+from src.battle_factory.enums import Move, Weather
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
 
 
@@ -32,6 +32,10 @@ class DisableStruct(BaseModel):
     chargeTimerStartValue: int = Field(ge=0, le=15, default=0)  # u8:4
     tauntTimer: int = Field(ge=0, le=15, default=0)  # u8:4
     tauntTimer2: int = Field(ge=0, le=15, default=0)  # u8:4
+
+    # Bide timer (2-3 turns when active)
+    bideTimer: int = Field(ge=0, le=15, default=0)
+    bideTimerStartValue: int = Field(ge=0, le=15, default=0)
 
     # Battler targeting
     battlerPreventingEscape: int = Field(ge=0, le=255, default=0)  # u8
@@ -200,6 +204,13 @@ class BattleState(BaseModel):
     # battlers[2] = Player Pokemon 2 (doubles), battlers[3] = Opponent Pokemon 2 (doubles)
     battlers: list[BattlePokemon | None] = Field(default_factory=lambda: [None, None, None, None], min_length=4, max_length=4)
 
+    # Parties for each side (player and opponent), up to 6 each
+    player_party: list[BattlePokemon | None] = Field(default_factory=lambda: [None, None, None, None, None, None], min_length=6, max_length=6)
+    opponent_party: list[BattlePokemon | None] = Field(default_factory=lambda: [None, None, None, None, None, None], min_length=6, max_length=6)
+
+    # Active party index for each battler slot (maps battler 0..3 -> party index 0..5)
+    active_party_index: list[int] = Field(default_factory=lambda: [-1, -1, -1, -1], min_length=4, max_length=4)
+
     # Move disable/restrict state for each battler
     disable_structs: list[DisableStruct] = Field(default_factory=lambda: [DisableStruct() for _ in range(4)], min_length=4, max_length=4)
 
@@ -221,6 +232,12 @@ class BattleState(BaseModel):
 
     light_screen_timers: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
 
+    # Safeguard timers - [player_side, opponent_side]
+    safeguard_timers: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
+
+    # Mist timers - [player_side, opponent_side]
+    mist_timers: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
+
     # Spikes layers - [player_side, opponent_side]
     spikes_layers: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
 
@@ -228,8 +245,7 @@ class BattleState(BaseModel):
     # FIELD CONDITIONS
     # =================================================================
 
-    # Weather state
-    weather: int = Field(ge=0, le=15, default=0)  # WEATHER_* constants
+    weather: Weather = Field(default=0)  # Weather enum
     weather_timer: int = Field(ge=0, le=255, default=0)
 
     # Terrain state (if implementing Gen 6+ features)
@@ -251,6 +267,16 @@ class BattleState(BaseModel):
     current_action_index: int = Field(ge=0, default=0)
 
     # =================================================================
+    # END-TURN EFFECTS STATE
+    # =================================================================
+
+    # End-turn effect tracking (mirrors gBattleStruct->turnEffectsTracker, etc.)
+    turn_effects_tracker: int = Field(ge=0, le=20, default=0)  # Current effect being processed
+    turn_effects_battler_id: int = Field(ge=0, le=3, default=0)  # Current battler being processed
+    turn_side_tracker: int = Field(ge=0, le=2, default=0)  # Current side being processed
+    turn_counters_tracker: int = Field(ge=0, le=20, default=0)  # Field effects counter
+
+    # =================================================================
     # BATTLE SCRIPT EXECUTION STATE
     # =================================================================
 
@@ -260,6 +286,57 @@ class BattleState(BaseModel):
     script_damage: int = Field(default=0)
     script_critical_hit: bool = Field(default=False)
     script_type_effectiveness: int = Field(ge=0, le=40, default=10)
+
+    # =================================================================
+    # MOVE EXECUTION STATE
+    # =================================================================
+
+    # Current move being executed (defined above in core flow state)
+    current_move_slot: int = Field(ge=0, le=3, default=0)  # Which move slot (0-3) is being used
+
+    # Move result flags (MOVE_RESULT_* constants)
+    move_result_flags: int = Field(ge=0, le=255, default=0)
+
+    # Hit marker flags (HITMARKER_* constants)
+    hit_marker: int = Field(ge=0, le=65535, default=0)
+
+    # Semi-invulnerable (Status3 analog) per battler
+    status3_on_air: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+    status3_underground: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+    status3_underwater: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+
+    # Damage multiplier hook for special cases (e.g., EQ vs Dig)
+    damage_multiplier: int = Field(ge=1, le=8, default=1)
+
+    # Track last used move per battler (for Torment and other effects)
+    last_moves: list[Move] = Field(default_factory=lambda: [Move.NONE, Move.NONE, Move.NONE, Move.NONE], min_length=4, max_length=4)
+
+    # Imprison: whether a battler has Imprison active and which moves are sealed
+    imprison_active: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+    imprison_moves: list[list[Move]] = Field(default_factory=lambda: [[Move.NONE, Move.NONE, Move.NONE, Move.NONE] for _ in range(4)], min_length=4, max_length=4)
+
+    # Bide tracking per battler
+    bide_damage: list[int] = Field(default_factory=lambda: [0, 0, 0, 0], min_length=4, max_length=4)
+    bide_target: list[int] = Field(default_factory=lambda: [0, 0, 0, 0], min_length=4, max_length=4)
+
+    def are_weather_effects_nullified(self) -> bool:
+        """
+        Check if weather effects are nullified by Cloud Nine or Air Lock abilities
+
+        From pokeemerald/src/battle_main.c WEATHER_HAS_EFFECT2 check
+        Weather has no effect if any active Pokemon has Cloud Nine or Air Lock
+
+        Returns:
+            True if weather effects are nullified, False if weather can have effects
+        """
+        from src.battle_factory.enums.ability import Ability
+
+        # Check if any active battler has Cloud Nine or Air Lock
+        for battler in self.battlers:
+            if battler and battler.ability in (Ability.CLOUD_NINE, Ability.AIR_LOCK):
+                return True
+
+        return False
 
     class Config:
         # Allow mutation for battle state updates

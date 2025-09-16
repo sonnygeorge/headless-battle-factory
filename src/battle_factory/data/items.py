@@ -36,6 +36,7 @@ ITEM_HOLD_EFFECTS = {
     Item.FOCUS_BAND: HoldEffect.FOCUS_BAND,  # May survive with 1 HP
     Item.CHOICE_BAND: HoldEffect.CHOICE_BAND,  # Boosts Attack but locks moves
     Item.QUICK_CLAW: HoldEffect.QUICK_CLAW,  # Increases priority
+    Item.MACHO_BRACE: HoldEffect.MACHO_BRACE,  # Halves Speed but doubles EV gain
     Item.KINGS_ROCK: HoldEffect.FLINCH,  # May cause flinching
     # Special items
     Item.THICK_CLUB: HoldEffect.THICK_CLUB,  # Doubles Cubone/Marowak Attack
@@ -92,6 +93,52 @@ def get_hold_effect(item: Item) -> HoldEffect:
         HoldEffect enum value for the item, or HoldEffect.NONE if item has no hold effect
     """
     return ITEM_HOLD_EFFECTS.get(item, HoldEffect.NONE)
+
+
+def get_hold_effect_param(item: Item) -> int:
+    """
+    Get hold effect parameter for an item - mirrors GetItemHoldEffectParam() from pokeemerald
+
+    Args:
+        item: The item to get hold effect parameter for
+
+    Returns:
+        Hold effect parameter value (e.g., percentage chance, boost amount, etc.)
+    """
+    # Hold effect parameters - from pokeemerald/src/data/items.h
+    HOLD_EFFECT_PARAMS = {
+        # Quick Claw has different activation rates
+        Item.QUICK_CLAW: 25,  # 25% chance (0x19 in hex)
+        # Focus Band survival chance
+        Item.FOCUS_BAND: 10,  # 10% chance to survive with 1 HP
+        # Type power boosting items (all +10% power)
+        Item.SILVER_POWDER: 10,
+        Item.HARD_STONE: 10,
+        Item.MIRACLE_SEED: 10,
+        Item.BLACK_GLASSES: 10,
+        Item.BLACK_BELT: 10,
+        Item.MAGNET: 10,
+        Item.MYSTIC_WATER: 10,
+        Item.SHARP_BEAK: 10,
+        Item.POISON_BARB: 10,
+        Item.NEVER_MELT_ICE: 10,
+        Item.SPELL_TAG: 10,
+        Item.TWISTED_SPOON: 10,
+        Item.CHARCOAL: 10,
+        Item.DRAGON_FANG: 10,
+        Item.SILK_SCARF: 10,
+        Item.SOFT_SAND: 10,
+        Item.METAL_COAT: 10,
+        # Berries restore different amounts
+        Item.ORAN_BERRY: 10,  # Restore 10 HP
+        Item.SITRUS_BERRY: 30,  # Restore 30 HP
+        Item.LEPPA_BERRY: 10,  # Restore 10 PP
+        # Kings Rock flinch chance
+        Item.KINGS_ROCK: 10,  # 10% flinch chance
+        # Default for items with no parameter
+    }
+
+    return HOLD_EFFECT_PARAMS.get(item, 0)
 
 
 def has_hold_effect(item: Item) -> bool:

@@ -1,4 +1,12 @@
-from enum import Enum, IntFlag
+from enum import IntEnum, IntFlag
+
+
+class Weather(IntEnum):
+    NONE = 0
+    SUN = 1
+    RAIN = 2
+    SANDSTORM = 3
+    HAIL = 4
 
 
 class KnockedOffTracker(IntFlag):
@@ -79,7 +87,7 @@ class KnockedOffTracker(IntFlag):
         return KnockedOffTracker(int(self) ^ (1 << slot))
 
 
-class GrowthRate(Enum):
+class GrowthRate(IntEnum):
     """Experience growth rates - from include/constants/pokemon.h"""
 
     MEDIUM_FAST = 0
@@ -90,7 +98,7 @@ class GrowthRate(Enum):
     SLOW = 5
 
 
-class EggGroup(Enum):
+class EggGroup(IntEnum):
     """Pokemon egg groups - from include/constants/pokemon.h"""
 
     NONE = 0
@@ -111,7 +119,7 @@ class EggGroup(Enum):
     NO_EGGS_DISCOVERED = 15
 
 
-class BodyColor(Enum):
+class BodyColor(IntEnum):
     """Body colors for Pokédex search - from include/constants/pokemon.h"""
 
     RED = 0

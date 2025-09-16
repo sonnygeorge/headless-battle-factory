@@ -16,9 +16,12 @@ from typing import Optional
 
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
 from src.battle_factory.schema.battle_move import BattleMove
+from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.enums import Move, Type, Ability, Item, Status1, Species
+from src.battle_factory.enums.hold_effect import HoldEffect
 from src.battle_factory.type_effectiveness import TypeEffectiveness
 from src.battle_factory.data.moves import BATTLE_MOVES, get_move_data, get_move_type
+from src.battle_factory.data.items import get_hold_effect
 
 
 # Constants from pokeemerald/include/constants/pokemon.h
@@ -78,6 +81,9 @@ class DamageCalculator:
 
     This class mirrors the CalculateBaseDamage function and related battle script commands.
     """
+
+    def __init__(self, battle_state: BattleState | None = None):
+        self.battle_state: BattleState | None = battle_state
 
     def calculate_base_damage(
         self,
@@ -143,8 +149,11 @@ class DamageCalculator:
 
         # TODO: Apply badge boosts (lines 3161-3169) - skip for Battle Factory
 
-        # TODO: Apply item effects (lines 3134-3156, 3170-3228)
-        # For now, skip hold item effects to focus on core calculation
+        # Apply item effects (lines 3134-3156, 3170-3228)
+        attack, sp_attack, defense, sp_defense = self._apply_item_effects(attacker, defender, attack, sp_attack, defense, sp_defense, move_type)
+
+        # Apply additional ability effects (lines 3202-3227)
+        attack, sp_attack, move_power = self._apply_ability_effects(attacker, defender, attack, sp_attack, move_power, move_type)
 
         # Apply Explosion effect (lines 3229-3230)
         if move_data.effect == 7:  # EFFECT_EXPLOSION
@@ -293,7 +302,7 @@ class DamageCalculator:
         # TODO: Apply double battle spread move reduction (lines 3326-3328)
 
         # Apply weather effects (lines 3330-3364)
-        if weather:  # WEATHER_HAS_EFFECT2 check would go here
+        if weather and not self.battle_state.are_weather_effects_nullified():
             damage = self._apply_weather_effects(damage, move_type, weather)
 
         # TODO: Apply Flash Fire (lines 3366-3368)
@@ -350,3 +359,117 @@ class DamageCalculator:
         # TODO: Apply Helping Hand boost (lines 1300-1301)
 
         return final_damage
+
+    def _apply_item_effects(
+        self,
+        attacker: BattlePokemon,
+        defender: BattlePokemon,
+        attack: int,
+        sp_attack: int,
+        defense: int,
+        sp_defense: int,
+        move_type: Type,
+    ) -> tuple[int, int, int, int]:
+        """
+        Apply item effects to stats - faithful port from lines 3170-3228 in C
+
+        Returns: (modified_attack, modified_sp_attack, modified_defense, modified_sp_defense)
+        """
+        # Get hold effects (lines 3134-3156 in C)
+        attacker_hold_effect = get_hold_effect(attacker.item)
+        defender_hold_effect = get_hold_effect(defender.item)
+
+        # Type-bonus hold items (lines 3170-3182 in C)
+        # TODO: Implement sHoldEffectToType array lookup
+        # For now, skip type-specific item bonuses
+
+        # Apply boosts from hold items (lines 3184-3201 in C)
+        if attacker_hold_effect == HoldEffect.CHOICE_BAND:
+            attack = (150 * attack) // 100
+
+        if attacker_hold_effect == HoldEffect.SOUL_DEW:
+            # Note: Soul Dew only works outside Frontier battles
+            # Battle Factory is a Frontier facility, so skip this
+            pass
+
+        if defender_hold_effect == HoldEffect.SOUL_DEW:
+            # Note: Soul Dew only works outside Frontier battles
+            # Battle Factory is a Frontier facility, so skip this
+            pass
+
+        if attacker_hold_effect == HoldEffect.DEEP_SEA_TOOTH and attacker.species == Species.CLAMPERL:
+            sp_attack *= 2
+
+        if defender_hold_effect == HoldEffect.DEEP_SEA_SCALE and defender.species == Species.CLAMPERL:
+            sp_defense *= 2
+
+        if attacker_hold_effect == HoldEffect.LIGHT_BALL and attacker.species == Species.PIKACHU:
+            sp_attack *= 2
+
+        if defender_hold_effect == HoldEffect.METAL_POWDER and defender.species == Species.DITTO:
+            defense *= 2
+
+        if attacker_hold_effect == HoldEffect.THICK_CLUB and attacker.species in (Species.CUBONE, Species.MAROWAK):
+            attack *= 2
+
+        # Marvel Scale increases Defense when statused (lines 3212-3213 in C)
+        if defender.ability == Ability.MARVEL_SCALE and defender.status1:
+            defense = (150 * defense) // 100
+
+        return attack, sp_attack, defense, sp_defense
+
+    def _apply_ability_effects(
+        self,
+        attacker: BattlePokemon,
+        defender: BattlePokemon,
+        attack: int,
+        sp_attack: int,
+        move_power: int,
+        move_type: Type,
+    ) -> tuple[int, int, int]:
+        """
+        Apply ability effects to stats and move power - faithful port from lines 3202-3227 in C
+
+        Returns: (modified_attack, modified_sp_attack, modified_move_power)
+        """
+        # Thick Fat reduces Fire/Ice damage (lines 3202-3203 in C)
+        if defender.ability == Ability.THICK_FAT and move_type in (Type.FIRE, Type.ICE):
+            sp_attack //= 2
+
+        # Hustle increases Attack but reduces accuracy (lines 3204-3205 in C)
+        if attacker.ability == Ability.HUSTLE:
+            attack = (150 * attack) // 100
+
+        # Plus and Minus abilities (lines 3206-3209 in C)
+        # TODO: Implement ABILITY_ON_FIELD2 check for Plus/Minus synergy
+        if attacker.ability == Ability.PLUS:
+            # Plus boosts Special Attack if Minus is also on field
+            # For now, skip the field check
+            pass
+
+        if attacker.ability == Ability.MINUS:
+            # Minus boosts Special Attack if Plus is also on field
+            # For now, skip the field check
+            pass
+
+        # Guts increases Attack when statused (lines 3210-3211 in C)
+        if attacker.ability == Ability.GUTS and attacker.status1:
+            attack = (150 * attack) // 100
+
+        # Field sport abilities (lines 3214-3218 in C)
+        # TODO: Implement AbilityBattleEffects for Mud Sport and Water Sport
+        # These reduce Electric and Fire move power respectively
+
+        # Overgrow, Blaze, Torrent, Swarm abilities (lines 3218-3227 in C)
+        # These boost move power when HP is low (≤1/3 max HP)
+        if attacker.hp <= (attacker.maxHP // 3):
+            if move_type == Type.GRASS and attacker.ability == Ability.OVERGROW:
+                move_power = (150 * move_power) // 100
+            elif move_type == Type.FIRE and attacker.ability == Ability.BLAZE:
+                move_power = (150 * move_power) // 100
+            elif move_type == Type.WATER and attacker.ability == Ability.TORRENT:
+                move_power = (150 * move_power) // 100
+            elif move_type == Type.BUG and attacker.ability == Ability.SWARM:
+                move_power = (150 * move_power) // 100
+
+        return attack, sp_attack, move_power

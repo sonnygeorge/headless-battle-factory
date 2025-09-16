@@ -1,7 +1,7 @@
-from src.battle_factory.schema import SpeciesInfo
+from src.battle_factory.schema.species_info import SpeciesInfo
 from src.battle_factory.enums import Species, Type, Item, GrowthRate, EggGroup, BodyColor, Ability
 
-# Faithful port of gSpeciesInfo[] from pokeemerald/src/data/pokemon/species_info.h
+# Port of gSpeciesInfo[] from pokeemerald/src/data/pokemon/species_info.h
 SPECIES_INFOS = {
     Species.NONE: SpeciesInfo(
         baseHP=0,

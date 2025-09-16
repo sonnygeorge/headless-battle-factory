@@ -1,7 +1,7 @@
-from src.battle_factory.schema import BattleMove
+from src.battle_factory.schema.battle_move import BattleMove
 from src.battle_factory.enums import Move, MoveEffect, MoveTarget, MoveFlag, Type
 
-# Faithful port of gBattleMoves[] from pokeemerald/src/data/battle_moves.h
+# Port of gBattleMoves[] from pokeemerald/src/data/battle_moves.h
 BATTLE_MOVES = {
     Move.NONE: BattleMove(
         effect=MoveEffect.HIT,
