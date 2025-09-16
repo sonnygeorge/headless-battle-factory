@@ -1,0 +1,57 @@
+Remaining move effects to implement for a comprehensive port of move effect mechanics:
+
+Multi-turn/locking and specials
+- Rollout/Ice Ball: ensure turn timers and reset behavior (we ramp power already)
+- Fury Cutter: ensure counter reset on miss/switch (we ramp power already)
+- Focus Punch: add user-facing fail message/flag path (logic exists)
+- Uproar: verify global sleep prevention timing across turns (wake implemented)
+
+Delayed/turn-timed
+- Doom Desire: mirror Future Sight handling (uses same pipeline)
+
+Field/item interactions
+- Rapid Spin: free partial-trap and Leech Seed; remove Spikes from user’s side
+- Brick Break: remove Reflect/Light Screen on hit (and apply after damage ordering)
+- Knock Off: remove target’s item and mark in knockedOffMons
+- Thief/Covet: steal target item if user has none; respect constraints
+- Trick: swap items between user/target
+
+Status/volatile specials
+- Yawn: drowsy then sleep next turn; respect Uproar/Insomnia/etc.
+- Will-O-Wisp: primary burn move
+- Swagger/Flatter: confuse + raise target’s Atk/SpA by 2
+- Mean Look: apply escape prevention to target
+- Psych Up: copy target’s stat stages
+- Baton Pass: pass stat stages and allowed volatiles (Substitute, etc.)
+- Magic Coat: reflect reflectable status moves
+- Snatch: steal self-targeting buffs this turn
+- Foresight/Odor Sleuth: negate Ghost immunities and Evasion for user vs target
+- Refresh: cure user’s major status
+- Heal Bell/Aromatherapy: cure party statuses (respect Soundproof edge cases)
+- Teeter Dance: confuse all adjacent foes (and partner in doubles)
+
+Variable power/type
+- Weather Ball: set type/power from weather
+- Hidden Power: compute type/power from IVs
+- Return/Frustration: power from friendship
+- Low Kick: power from target weight
+- Flail/Reversal: power from user HP ratio
+- Eruption/Water Spout: power from user HP ratio
+- Revenge: boosted power if user was hit first
+- Present: random power or heal outcome
+- Secret Power: terrain-dependent secondary effect
+- Nature Power: call terrain-dependent move
+- Assist/Metronome/Sketch/Role Play: meta-move behaviors
+
+Redirection/party/other
+- Follow Me: implement redirection via SideTimer.followme
+- Helping Hand: 1.5x partner’s damage this turn
+- Camouflage: change user’s type based on terrain (define mapping)
+- Memento: user faints; target’s Atk/SpA -2 stages
+- SmellingSalt: boosted vs paralyzed and cures paralysis on hit
+- Facade: boosted power while statused
+
+Polish/verification
+- Minimize interactions (double damage/contact flags for certain moves)
+- Screen/Reflect math in doubles (1/3 vs 1/2 in singles) if we add doubles
+- Exact per-move recoil/drain ratios where generic differs (Double-Edge, etc.)

@@ -131,6 +131,25 @@ class DamageCalculator:
         else:
             move_power = move_data.power
 
+        # Apply dynamic power modifiers for specific multi-turn moves
+        # Rollout (and Ice Ball analog) ramp: doubles each successive turn; Defense Curl doubles further
+        if move == Move.ROLLOUT and self.battle_state is not None:
+            ds = self.battle_state.disable_structs[attacker_id]
+            turns_used = 0
+            if ds.rolloutTimerStartValue and ds.rolloutTimerStartValue >= ds.rolloutTimer:
+                turns_used = ds.rolloutTimerStartValue - ds.rolloutTimer
+            # Double power per turn used
+            move_power = move_power * (1 << max(0, turns_used))
+            # Defense Curl bonus doubles Rollout power once
+            if attacker.status2.used_defense_curl():
+                move_power *= 2
+
+        # Fury Cutter ramp: doubles each consecutive use up to a cap (160 in Gen 3)
+        if move == Move.FURY_CUTTER and self.battle_state is not None:
+            ds = self.battle_state.disable_structs[attacker_id]
+            counter = max(1, ds.furyCutterCounter)
+            move_power = min(160, move_power * (1 << (counter - 1)))
+
         # Get move type (lines 3124-3127)
         if type_override:
             move_type = type_override
@@ -354,6 +373,19 @@ class DamageCalculator:
                 gBattleMoveDamage = gBattleMoveDamage * 15 / 10;
         """
         final_damage = base_damage * critical_multiplier * dmg_multiplier
+
+        # Charge: double damage of Electric-type move if user is charged up
+        if self.battle_state is not None:
+            try:
+                move_type = get_move_type(move)
+            except Exception:
+                move_type = None
+            if move_type == Type.ELECTRIC:
+                attacker_id = self.battle_state.battler_attacker
+                ds = self.battle_state.disable_structs[attacker_id]
+                if ds.chargeTimer > 0:
+                    final_damage *= 2
+                    ds.chargeTimer = 0
 
         # TODO: Apply Charge status for Electric moves (lines 1298-1299)
         # TODO: Apply Helping Hand boost (lines 1300-1301)

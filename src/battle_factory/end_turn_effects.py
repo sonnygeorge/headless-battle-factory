@@ -29,11 +29,9 @@ class EndTurnEffectsProcessor:
 
         This is the main entry point that mirrors the C battle flow.
         """
-        # First process field-level effects
         self._process_field_end_turn_effects()
-
-        # Then process battler-level effects for each active battler
         self._process_battler_end_turn_effects()
+        self._process_future_sight()
 
     def _process_field_end_turn_effects(self) -> None:
         """
@@ -124,7 +122,17 @@ class EndTurnEffectsProcessor:
                 effect_processed = True
 
             case EndTurnFieldEffect.WISH:
-                # ENDTURN_WISH - Wish healing effects (placeholder)
+                # ENDTURN_WISH - Wish healing effects
+                for b in range(4):
+                    if self.battle_state.wish_future_knock.wishCounter[b] > 0:
+                        self.battle_state.wish_future_knock.wishCounter[b] -= 1
+                        if self.battle_state.wish_future_knock.wishCounter[b] == 0:
+                            target_id = self.battle_state.wish_future_knock.wishMonId[b]
+                            target = self.battle_state.battlers[target_id]
+                            if target is not None and target.hp > 0:
+                                heal = max(1, target.maxHP // 2)
+                                target.hp = min(target.maxHP, target.hp + heal)
+                                print(f"Wish healed battler {target_id} for {heal}")
                 self.battle_state.turn_counters_tracker = EndTurnFieldEffect.RAIN
                 self.battle_state.turn_side_tracker = 0
                 effect_processed = True
@@ -309,12 +317,37 @@ class EndTurnEffectsProcessor:
                 effect_processed = True
 
             case EndTurnBattlerEffect.UPROAR:
-                # ENDTURN_UPROAR - Uproar timer decrements (placeholder)
+                # ENDTURN_UPROAR - Uproar timer decrements and wakes sleeping Pokemon while active
+                turns = battler.status2.get_uproar_turns()
+                if turns > 0:
+                    battler.status2 = battler.status2.decrement_uproar()
+                # If any battler is in Uproar after decrement, wake all sleeping battlers
+                any_uproar = False
+                for b in self.battle_state.battlers:
+                    if b and b.status2.get_uproar_turns() > 0:
+                        any_uproar = True
+                        break
+                if any_uproar:
+                    for i, b in enumerate(self.battle_state.battlers):
+                        if not b:
+                            continue
+                        if b.status1.is_asleep():
+                            b.status1 = b.status1.remove_sleep()
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.THRASH
                 effect_processed = True
 
             case EndTurnBattlerEffect.THRASH:
-                # ENDTURN_THRASH - Thrash timer decrements (placeholder)
+                # ENDTURN_THRASH - Rampage lock decrements; when ends, confuse 2-5 turns
+                turns = battler.status2.get_lock_confuse_turns()
+                if turns > 0:
+                    battler.status2 = battler.status2.decrement_lock_confuse()
+                    if battler.status2.get_lock_confuse_turns() == 0:
+                        # Apply confusion 2-5 turns
+                        from src.battle_factory.move_effects.status_effects import _advance_rng
+
+                        r = _advance_rng(self.battle_state)
+                        conf = 2 + (r % 4)
+                        battler.status2 = battler.status2.remove_confusion() | Status2.confusion_turn(conf)
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.DISABLE
                 effect_processed = True
 
@@ -325,6 +358,13 @@ class EndTurnEffectsProcessor:
                     if self.battle_state.disable_structs[battler_id].disableTimer == 0:
                         self.battle_state.disable_structs[battler_id].disabledMove = 0  # Clear disabled move
                         print(f"Disable ended for battler {battler_id}")
+                # Perish Song countdown
+                if self.battle_state.disable_structs[battler_id].perishSongTimer > 0:
+                    self.battle_state.disable_structs[battler_id].perishSongTimer -= 1
+                    if self.battle_state.disable_structs[battler_id].perishSongTimer == 0:
+                        # Faint the battler regardless of status
+                        battler.hp = 0
+                        print(f"Battler {battler_id} perished!")
                 # Bide timer decrement
                 if self.battle_state.disable_structs[battler_id].bideTimer > 0:
                     self.battle_state.disable_structs[battler_id].bideTimer -= 1
@@ -441,6 +481,36 @@ class EndTurnEffectsProcessor:
 
             # Clear status conditions on faint (mirrors original behavior)
             self._clear_status_on_faint(battler)
+
+    def _process_future_sight(self) -> None:
+        """Apply Future Sight/Doom Desire hits when their counters expire."""
+        for tid in range(4):
+            cnt = self.battle_state.wish_future_knock.futureSightCounter[tid]
+            if cnt > 0:
+                self.battle_state.wish_future_knock.futureSightCounter[tid] = cnt - 1
+                if cnt - 1 == 0:
+                    atk_id = self.battle_state.wish_future_knock.futureSightAttacker[tid]
+                    move = self.battle_state.wish_future_knock.futureSightMove[tid]
+                    target = self.battle_state.battlers[tid]
+                    attacker = self.battle_state.battlers[atk_id]
+                    if attacker is None or target is None or target.hp <= 0:
+                        continue
+                    # Calculate damage ignoring type immunity per Gen 3 quirk
+                    from src.battle_factory.damage_calculator import DamageCalculator
+                    from src.battle_factory.data.moves import get_move_data
+
+                    calc = DamageCalculator(self.battle_state)
+                    # Temporarily set context
+                    self.battle_state.battler_attacker = atk_id
+                    self.battle_state.battler_target = tid
+                    self.battle_state.current_move = move
+                    md = get_move_data(move)
+                    side_status = self.battle_state.side_statuses[tid % 2]
+                    base = calc.calculate_base_damage(attacker, target, move, side_status, 0, None, atk_id, tid, 1, self.battle_state.weather)
+                    # Ignore type immunity: clamp to at least 1 if base is 0
+                    dmg = max(1, base)
+                    target.hp = max(0, target.hp - dmg)
+                    print(f"Future Sight hit battler {tid} for {dmg}")
 
     def _clear_status_on_faint(self, battler: BattlePokemon) -> None:
         """

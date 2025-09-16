@@ -397,6 +397,13 @@ class BattleScriptInterpreter:
                 battle_state.current_move = attacker.moves[enc_pos]
                 battle_state.current_move_slot = enc_pos
 
+        # Focus Punch lose-focus: if user has been hit earlier this turn, the move fails
+        md = get_move_data(battle_state.current_move)
+        if md and md.effect == MoveEffect.FOCUS_PUNCH:
+            ps = battle_state.protect_structs[attacker_id]
+            if ps.notFirstStrike:
+                immobilized = True
+
         # Imprison: if any opposing battler has Imprison active and our move is sealed, block it
         attacker_side_is_player = attacker_id % 2 == 0
         for opp in range(4):
@@ -887,6 +894,8 @@ class BattleScriptInterpreter:
             battle_state.bide_target[t_id] = battle_state.battler_attacker
 
         target.hp = max(0, target.hp - damage)
+        # Mark that the target has been hit this turn (for Focus Punch cancel)
+        battle_state.protect_structs[battle_state.battler_target].notFirstStrike = True
 
         return True
 
@@ -906,6 +915,21 @@ class BattleScriptInterpreter:
         # Check if Pokemon has fainted
         if target.hp <= 0:
             target.hp = 0
+            # Destiny Bond: if target had Destiny Bond active this turn, KO the attacker
+            if target.status2.has_destiny_bond():
+                atk_id = battle_state.battler_attacker
+                atk = battle_state.battlers[atk_id]
+                if atk is not None and atk.hp > 0:
+                    atk.hp = 0
+            # Grudge: if target used Grudge and was KO'd by a move, zero out PP of the move used
+            if battle_state.grudge_active[battle_state.battler_target]:
+                # Zero PP of attacker's current move slot
+                atk_id = battle_state.battler_attacker
+                atk = battle_state.battlers[atk_id]
+                slot = battle_state.current_move_slot
+                if atk is not None and 0 <= slot < 4:
+                    atk.pp[slot] = 0
+                battle_state.grudge_active[battle_state.battler_target] = False
             # Immediately attempt replacement mid-turn (headless auto)
             self._auto_replace_battler(battle_state, battle_state.battler_target)
 

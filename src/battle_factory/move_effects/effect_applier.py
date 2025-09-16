@@ -1,4 +1,4 @@
-from src.battle_factory.enums import Ability, Move, MoveEffect, Type, Weather
+from src.battle_factory.enums import Ability, Move, MoveEffect, Type, Weather, Status2
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.data.moves import get_move_effect, get_move_data
 from src.battle_factory.move_effects import status_effects, field_effects
@@ -193,6 +193,49 @@ def apply_primary(battle_state: BattleState) -> None:
     elif effect == MoveEffect.TRAP:
         # Bind/Wrap/Fire Spin/Clamp/Whirlpool/Sand Tomb all use EFFECT_TRAP
         status_effects.primary_partial_trap(battle_state)
+    elif effect == MoveEffect.DEFENSE_CURL:
+        status_effects.primary_defense_curl(battle_state)
+    elif effect == MoveEffect.CHARGE:
+        status_effects.primary_charge(battle_state)
+    elif effect == MoveEffect.UPROAR:
+        status_effects.primary_uproar(battle_state)
+    elif effect == MoveEffect.RAMPAGE:
+        status_effects.primary_rampage(battle_state)
+    elif effect == MoveEffect.WISH:
+        # Set wish to heal at end of next turn for the user position
+        b = battle_state.battler_attacker
+        battle_state.wish_future_knock.wishCounter[b] = 2  # heal after next turn passes
+        battle_state.wish_future_knock.wishMonId[b] = b
+        return
+    elif effect == MoveEffect.DESTINY_BOND:
+        # Set Destiny Bond volatile for this turn: on KO, the attacker faints too
+        user = battle_state.battler_attacker
+        battle_state.battlers[user].status2 |= Status2.DESTINY_BOND
+        return
+    elif effect == MoveEffect.GRUDGE:
+        # If user faints this turn from a move, the attacker's move loses all PP
+        battle_state.grudge_active[battle_state.battler_attacker] = True
+        return
+    elif effect == MoveEffect.PERISH_SONG:
+        # Set Perish Song counters (3 turns) on all active battlers that can hear
+        for i, mon in enumerate(battle_state.battlers):
+            if mon is None:
+                continue
+            # Soundproof prevents Perish Song
+            if mon.ability == Ability.SOUNDPROOF:
+                continue
+            ds = battle_state.disable_structs[i]
+            ds.perishSongTimer = 3
+            ds.perishSongTimerStartValue = 3
+        return
+    elif effect == MoveEffect.FUTURE_SIGHT:
+        # Schedule delayed attack on target position after 2 turns
+        tid = battle_state.battler_target
+        battle_state.wish_future_knock.futureSightCounter[tid] = 3  # triggers after 2 full turns pass
+        battle_state.wish_future_knock.futureSightAttacker[tid] = battle_state.battler_attacker
+        battle_state.wish_future_knock.futureSightMove[tid] = battle_state.current_move
+        # Damage calculated on hit using stored attacker and move
+        return
     elif effect == MoveEffect.CONFUSE:
         status_effects.primary_confuse(battle_state)
     elif effect == MoveEffect.ATTRACT:

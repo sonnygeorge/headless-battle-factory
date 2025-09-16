@@ -110,6 +110,10 @@ class BattleEngine:
         This mirrors the main battle loop from the C code:
         - BattleTurnPassed() -> HandleTurnActionSelectionState() -> RunTurnActionsFunctions()
         """
+        # 0. Reset per-turn flags
+        for ps in self.battle_state.protect_structs:
+            ps.notFirstStrike = False
+
         # 1. Validate actions
         if not self._validate_actions(actions):
             return self.battle_state

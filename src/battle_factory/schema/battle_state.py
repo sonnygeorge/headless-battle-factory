@@ -319,6 +319,12 @@ class BattleState(BaseModel):
     bide_damage: list[int] = Field(default_factory=lambda: [0, 0, 0, 0], min_length=4, max_length=4)
     bide_target: list[int] = Field(default_factory=lambda: [0, 0, 0, 0], min_length=4, max_length=4)
 
+    # Grudge status per battler (if they used Grudge this turn)
+    grudge_active: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+
+    # Delayed effects container (Wish, Future Sight/Doom Desire, Knock Off bitmasks)
+    wish_future_knock: WishFutureKnock = Field(default_factory=WishFutureKnock)
+
     def are_weather_effects_nullified(self) -> bool:
         """
         Check if weather effects are nullified by Cloud Nine or Air Lock abilities

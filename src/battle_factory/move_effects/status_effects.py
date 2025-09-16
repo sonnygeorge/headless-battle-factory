@@ -275,6 +275,49 @@ def primary_encore(battle_state: BattleState) -> None:
     ds_t.encoreTimerStartValue = ds_t.encoreTimer
 
 
+def primary_defense_curl(battle_state: BattleState) -> None:
+    user = battle_state.battler_attacker
+    mon = battle_state.battlers[user]
+    if mon is None:
+        return
+    # Raise Defense by 1 and set Defense Curl flag
+    from src.battle_factory.move_effects import stat_changes
+
+    stat_changes.raise_stat_user(battle_state, stat_changes.STAT_DEF, 1)
+    mon.status2 |= Status2.DEFENSE_CURL
+
+
+def primary_charge(battle_state: BattleState) -> None:
+    user = battle_state.battler_attacker
+    ds = battle_state.disable_structs[user]
+    # Lasts until end of next turn; we decrement at end-turn, so set to 2
+    ds.chargeTimer = 2
+    ds.chargeTimerStartValue = 2
+
+
+def primary_uproar(battle_state: BattleState) -> None:
+    user = battle_state.battler_attacker
+    mon = battle_state.battlers[user]
+    if mon is None:
+        return
+    # 2-5 turns
+    r = _advance_rng(battle_state)
+    turns = 2 + (r % 4)
+    mon.status2 = mon.status2.set_uproar_turns(turns)
+
+
+def primary_rampage(battle_state: BattleState) -> None:
+    user = battle_state.battler_attacker
+    mon = battle_state.battlers[user]
+    if mon is None:
+        return
+    # If not already locked, start 2-3 turns lock
+    if mon.status2.get_lock_confuse_turns() == 0:
+        r = _advance_rng(battle_state)
+        turns = 2 + (r % 2)  # 2-3
+        mon.status2 = mon.status2.set_lock_confuse_turns(turns)
+
+
 # =====================
 # Residual effects: Leech Seed and partial-trap
 # =====================
