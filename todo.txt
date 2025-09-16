@@ -4,10 +4,10 @@ Multi-turn/locking and specials
 - [DONE] Rollout/Ice Ball: ensure turn timers and reset behavior
 - [DONE] Fury Cutter: ensure counter reset on miss/switch
 - [DONE] Focus Punch: add user-facing fail message/flag path
-- Uproar: verify global sleep prevention timing across turns (wake implemented)
+- [DONE] Uproar: verify global sleep prevention timing across turns (wake implemented)
 
 Delayed/turn-timed
-- Doom Desire: mirror Future Sight handling (uses same pipeline)
+- [DONE] Doom Desire: mirror Future Sight handling (uses same pipeline)
 
 Field/item interactions
 - [DONE] Rapid Spin: free partial-trap and Leech Seed; remove Spikes from user’s side
@@ -24,27 +24,22 @@ Status/volatile specials
 - [DONE] Psych Up: copy target’s stat stages
 - [DONE] Baton Pass: pass stat stages and allowed volatiles (Substitute)
 - [DONE] Magic Coat: reflectable status moves (flag set for turn)
-- [DONE] Snatch: steal self-targeting buffs this turn (flag set for turn)
+- [DONE] Snatch: steal self-targeting buffs this turn
 - [DONE] Flatter implemented
-- Mean Look: apply escape prevention to target
-- Psych Up: copy target’s stat stages
-- Baton Pass: pass stat stages and allowed volatiles (Substitute, etc.)
-- Magic Coat: reflect reflectable status moves
-- Snatch: steal self-targeting buffs this turn
-- Foresight/Odor Sleuth: negate Ghost immunities and Evasion for user vs target
-- Refresh: cure user’s major status
-- Heal Bell/Aromatherapy: cure party statuses (respect Soundproof edge cases)
-- Teeter Dance: confuse all adjacent foes (and partner in doubles)
+- [DONE] Foresight/Odor Sleuth: negate Ghost immunities and Evasion for user vs target
+- [DONE] Refresh: cure user’s major status
+- [DONE] Heal Bell/Aromatherapy: cure party statuses (respect Soundproof edge cases)
+- [DONE] Teeter Dance: confuse all adjacent foes (and partner in doubles)
 
 Variable power/type
-- Weather Ball: set type/power from weather
-- Hidden Power: compute type/power from IVs
-- Return/Frustration: power from friendship
-- Low Kick: power from target weight
-- Flail/Reversal: power from user HP ratio
-- Eruption/Water Spout: power from user HP ratio
-- Revenge: boosted power if user was hit first
-- Present: random power or heal outcome
+- [DONE] Weather Ball: set type/power from weather
+- [DONE] Hidden Power: compute type/power from IVs
+- [DONE] Return/Frustration: power from friendship
+- [DONE] Low Kick: power from target weight
+- [DONE] Flail/Reversal: power from user HP ratio
+- [DONE] Eruption/Water Spout: power from user HP ratio
+- [DONE] Revenge: boosted power if user was hit first
+- [DONE] Present: random power or heal outcome
 - Secret Power: terrain-dependent secondary effect
 - Nature Power: call terrain-dependent move
 - Assist/Metronome/Sketch/Role Play: meta-move behaviors

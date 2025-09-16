@@ -48,9 +48,10 @@ def _apply_sleep(battle_state: BattleState, target_id: int, turns: int) -> None:
     # Insomnia/Vital Spirit immunity
     if target.ability in (Ability.INSOMNIA, Ability.VITAL_SPIRIT):
         return
-    # Uproar prevents sleep
-    if target.status2.is_in_uproar():
-        return
+    # Uproar prevents sleep for all battlers while active
+    for b in battle_state.battlers:
+        if b and b.status2.get_uproar_turns() > 0:
+            return
     # Type and other immunities: none for sleep
     # Apply
     target.status1 = target.status1.remove_sleep().set_sleep_turns(turns)
@@ -486,3 +487,123 @@ def primary_partial_trap(battle_state: BattleState) -> None:
     turns = 2 + (r % 4)
     target.status2 = target.status2.remove_wrapped() | Status2.wrapped_turn(turns)
     target.status2 |= Status2.ESCAPE_PREVENTION
+
+
+def primary_foresight(battle_state: BattleState) -> None:
+    """Apply Foresight/Odor Sleuth: negate Ghost immunity and evasion boosts against the user.
+
+    In Gen 3, setting target identified flag is sufficient; we model it with Status2.FORESIGHT on target.
+    """
+    target_id = battle_state.battler_target
+    target = battle_state.battlers[target_id]
+    if target is None:
+        return
+    # Substitute does not block Foresight in-game; we allow application regardless.
+    target.status2 |= Status2.FORESIGHT
+
+
+def primary_refresh(battle_state: BattleState) -> None:
+    """Refresh: cures user's paralysis, poison, and burn."""
+    user_id = battle_state.battler_attacker
+    mon = battle_state.battlers[user_id]
+    if mon is None:
+        return
+    s = mon.status1
+    s = s.remove_poison()
+    s = s.remove_burn()
+    s = s.remove_paralysis()
+    mon.status1 = s
+
+
+def primary_heal_bell(battle_state: BattleState) -> None:
+    """Heal Bell/Aromatherapy: cures party statuses; Soundproof blocks Heal Bell only."""
+    user_id = battle_state.battler_attacker
+    user_is_player = (user_id % 2) == 0
+    party = battle_state.player_party if user_is_player else battle_state.opponent_party
+    is_aromatherapy = battle_state.current_move == Move.AROMATHERAPY
+    for mon in party:
+        if mon is None:
+            continue
+        # Soundproof blocks Heal Bell's effect on the holder; Aromatherapy is not blocked
+        if (not is_aromatherapy) and mon.ability == Ability.SOUNDPROOF:
+            continue
+        # Clear all major status
+        mon.status1 = mon.status1.clear_all()
+
+
+def primary_teeter_dance(battle_state: BattleState) -> None:
+    """Teeter Dance: confuse all adjacent Pokémon (opponents and partner in doubles)."""
+    user = battle_state.battler_attacker
+    # Opponents
+    for i, mon in enumerate(battle_state.battlers):
+        if mon is None or i == user:
+            continue
+        # Singles: target opponents only; Doubles: also partner
+        is_opponent = (i % 2) != (user % 2)
+        is_partner = i == (user ^ 2)
+        if is_opponent or is_partner:
+            # Substitute blocks non-damaging confusion
+            if mon.status2.has_substitute():
+                continue
+            if mon.ability == Ability.OWN_TEMPO:
+                continue
+            r = _advance_rng(battle_state)
+            turns = 2 + (r % 4)
+            mon.status2 = mon.status2.remove_confusion() | Status2.confusion_turn(turns)
+
+
+def primary_present(battle_state: BattleState) -> None:
+    """Present: 40/80/120 BP or heals target for 1/4 max HP.
+
+    Mirrors Cmd_presentdamagecalculation probabilities and effects for Gen 3.
+    """
+    # Roll 0-255
+    r16 = _advance_rng(battle_state)
+    rand = r16 & 0xFF
+    target = battle_state.battlers[battle_state.battler_target]
+    if target is None:
+        return
+
+    if rand < 102:
+        # 40 BP: set script damage via battle calculator path
+        from src.battle_factory.damage_calculator import DamageCalculator
+        from src.battle_factory.data.moves import get_move_type
+
+        calc = DamageCalculator(battle_state)
+        attacker = battle_state.battlers[battle_state.battler_attacker]
+        if attacker is None:
+            return
+        move_type = get_move_type(battle_state.current_move)
+        base = calc.calculate_base_damage(attacker, target, battle_state.current_move, battle_state.side_statuses[battle_state.battler_target % 2], power_override=40, type_override=move_type, attacker_id=battle_state.battler_attacker, defender_id=battle_state.battler_target, critical_multiplier=battle_state.critical_multiplier, weather=battle_state.weather)
+        battle_state.battle_move_damage = base
+        target.hp = max(0, target.hp - base)
+    elif rand < 178:
+        from src.battle_factory.damage_calculator import DamageCalculator
+        from src.battle_factory.data.moves import get_move_type
+
+        calc = DamageCalculator(battle_state)
+        attacker = battle_state.battlers[battle_state.battler_attacker]
+        if attacker is None:
+            return
+        move_type = get_move_type(battle_state.current_move)
+        base = calc.calculate_base_damage(attacker, target, battle_state.current_move, battle_state.side_statuses[battle_state.battler_target % 2], power_override=80, type_override=move_type, attacker_id=battle_state.battler_attacker, defender_id=battle_state.battler_target, critical_multiplier=battle_state.critical_multiplier, weather=battle_state.weather)
+        battle_state.battle_move_damage = base
+        target.hp = max(0, target.hp - base)
+    elif rand < 204:
+        from src.battle_factory.damage_calculator import DamageCalculator
+        from src.battle_factory.data.moves import get_move_type
+
+        calc = DamageCalculator(battle_state)
+        attacker = battle_state.battlers[battle_state.battler_attacker]
+        if attacker is None:
+            return
+        move_type = get_move_type(battle_state.current_move)
+        base = calc.calculate_base_damage(attacker, target, battle_state.current_move, battle_state.side_statuses[battle_state.battler_target % 2], power_override=120, type_override=move_type, attacker_id=battle_state.battler_attacker, defender_id=battle_state.battler_target, critical_multiplier=battle_state.critical_multiplier, weather=battle_state.weather)
+        battle_state.battle_move_damage = base
+        target.hp = max(0, target.hp - base)
+    else:
+        # Heal target for 1/4 of max HP (min 1)
+        heal = max(1, target.maxHP // 4)
+        before = target.hp
+        target.hp = min(target.maxHP, target.hp + heal)
+        battle_state.battle_move_damage = -(target.hp - before)

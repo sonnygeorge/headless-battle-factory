@@ -539,7 +539,11 @@ class BattleScriptInterpreter:
         acc_stage = attacker.statStages[STAT_ACC]
         eva_stage = defender.statStages[STAT_EVASION]
         acc_num, acc_den = STAT_STAGE_RATIOS[acc_stage]
-        eva_num, eva_den = STAT_STAGE_RATIOS[eva_stage]
+        # Foresight negates evasion modifiers for the defender
+        if defender.status2.has_foresight():
+            eva_num, eva_den = (10, 10)
+        else:
+            eva_num, eva_den = STAT_STAGE_RATIOS[eva_stage]
 
         # Final accuracy = base * (acc_num/acc_den) * (eva_den/eva_num)
         final_acc = base_acc
@@ -809,10 +813,11 @@ class BattleScriptInterpreter:
         move_type = get_move_type(battle_state.current_move)
 
         # Apply type effectiveness sequentially per defending type (Gen 3 behavior)
-        eff1 = TypeEffectiveness.get_effectiveness(move_type, defender.types[0])
+        has_foresight = defender.status2.has_foresight()
+        eff1 = TypeEffectiveness.get_effectiveness(move_type, defender.types[0], has_foresight)
         dmg = (battle_state.battle_move_damage * eff1) // 10
         if defender.types[1] is not None and defender.types[1] != defender.types[0]:
-            eff2 = TypeEffectiveness.get_effectiveness(move_type, defender.types[1])
+            eff2 = TypeEffectiveness.get_effectiveness(move_type, defender.types[1], has_foresight)
             dmg = (dmg * eff2) // 10
             effectiveness = (eff1 * eff2) // 10
         else:
@@ -1248,6 +1253,17 @@ class BattleScriptLibrary:
                     BattleScriptCommand.DATAHPUPDATE,  # Update target HP
                     BattleScriptCommand.TRYFAINTMON,  # Check if target faints
                     BattleScriptCommand.SETEFFECTSECONDARY,  # Apply secondary effects
+                    BattleScriptCommand.END,
+                ]
+            ),
+            MoveEffect.PRESENT: BattleScript(
+                [
+                    # Present has custom damage/heal handling in primary effect
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.ACCURACYCHECK,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,
+                    BattleScriptCommand.TRYFAINTMON,
                     BattleScriptCommand.END,
                 ]
             ),
@@ -1708,6 +1724,39 @@ class BattleScriptLibrary:
                     BattleScriptCommand.PPREDUCE,
                     BattleScriptCommand.SETEFFECTPRIMARY,  # charge or resolve with weather penalty when needed
                     BattleScriptCommand.TRYFAINTMON,
+                    BattleScriptCommand.END,
+                ]
+            ),
+            MoveEffect.FORESIGHT: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.ACCURACYCHECK,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,
+                    BattleScriptCommand.END,
+                ]
+            ),
+            MoveEffect.REFRESH: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,
+                    BattleScriptCommand.END,
+                ]
+            ),
+            MoveEffect.HEAL_BELL: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,
+                    BattleScriptCommand.END,
+                ]
+            ),
+            MoveEffect.TEETER_DANCE: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,
                     BattleScriptCommand.END,
                 ]
             ),

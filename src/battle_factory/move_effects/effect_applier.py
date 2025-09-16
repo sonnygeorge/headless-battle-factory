@@ -453,6 +453,15 @@ def apply_primary(battle_state: BattleState) -> None:
                 battle_state.bide_damage[user] = 0
                 battle_state.bide_target[user] = 0
                 return
+    # New primary effects wiring
+    elif effect == MoveEffect.FORESIGHT:
+        status_effects.primary_foresight(battle_state)
+    elif effect == MoveEffect.REFRESH:
+        status_effects.primary_refresh(battle_state)
+    elif effect == MoveEffect.HEAL_BELL:
+        status_effects.primary_heal_bell(battle_state)
+    elif effect == MoveEffect.TEETER_DANCE:
+        status_effects.primary_teeter_dance(battle_state)
     # Add more primary effects as implemented
 
 

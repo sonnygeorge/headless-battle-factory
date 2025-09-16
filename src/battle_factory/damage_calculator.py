@@ -22,6 +22,7 @@ from src.battle_factory.enums.hold_effect import HoldEffect
 from src.battle_factory.type_effectiveness import TypeEffectiveness
 from src.battle_factory.data.moves import BATTLE_MOVES, get_move_data, get_move_type
 from src.battle_factory.data.items import get_hold_effect
+from src.battle_factory.data.species_weights import get_weight_hg
 
 
 # Constants from pokeemerald/include/constants/pokemon.h
@@ -131,6 +132,122 @@ class DamageCalculator:
         else:
             move_power = move_data.power
 
+        # Dynamic overrides for certain moves (type/power)
+        dynamic_type: Optional[Type] = None
+
+        # Weather Ball: type/power change with weather (Gen 3: 100 BP in weather)
+        if move == Move.WEATHER_BALL and self.battle_state is not None:
+            if not self.battle_state.are_weather_effects_nullified():
+                if self.battle_state.weather == 1:  # Weather.RAIN (enum value assumed 1)
+                    dynamic_type = Type.WATER
+                    move_power = 100
+                elif self.battle_state.weather == 2:  # Weather.SUN
+                    dynamic_type = Type.FIRE
+                    move_power = 100
+                elif self.battle_state.weather == 3:  # Weather.SANDSTORM
+                    dynamic_type = Type.ROCK
+                    move_power = 100
+                elif self.battle_state.weather == 4:  # Weather.HAIL
+                    dynamic_type = Type.ICE
+                    move_power = 100
+
+        # Hidden Power: compute type and power from IVs (Gen 3 formula)
+        if move == Move.HIDDEN_POWER:
+            # Type calculation uses lowest bit of each IV to pick among 16 types
+            a = attacker.hpIV & 1
+            b = attacker.attackIV & 1
+            c = attacker.defenseIV & 1
+            d = attacker.speedIV & 1
+            e = attacker.spAttackIV & 1
+            f = attacker.spDefenseIV & 1
+            type_index = a + 2 * b + 4 * c + 8 * d + 16 * e + 32 * f
+            type_index = (type_index * 15) // 63  # 0..15
+            hp_types = [
+                Type.FIGHTING,
+                Type.FLYING,
+                Type.POISON,
+                Type.GROUND,
+                Type.ROCK,
+                Type.BUG,
+                Type.GHOST,
+                Type.STEEL,
+                Type.FIRE,
+                Type.WATER,
+                Type.GRASS,
+                Type.ELECTRIC,
+                Type.PSYCHIC,
+                Type.ICE,
+                Type.DRAGON,
+                Type.DARK,
+            ]
+            dynamic_type = hp_types[type_index]
+
+            # Power calculation uses two least significant bits of each IV
+            a2 = attacker.hpIV & 3
+            b2 = attacker.attackIV & 3
+            c2 = attacker.defenseIV & 3
+            d2 = attacker.speedIV & 3
+            e2 = attacker.spAttackIV & 3
+            f2 = attacker.spDefenseIV & 3
+            power_val = a2 + 2 * b2 + 4 * c2 + 8 * d2 + 16 * e2 + 32 * f2
+            move_power = (power_val * 40) // 63 + 30  # 30..70
+
+        # Return/Frustration: power from friendship
+        if move == Move.RETURN:
+            # Gen 3 formula yields 0..102; clamp to at least 1
+            move_power = max(1, (attacker.friendship * 10) // 25)
+        elif move == Move.FRUSTRATION:
+            move_power = max(1, ((255 - attacker.friendship) * 10) // 25)
+
+        # Low Kick: base power depends on target weight in hectograms (Gen 3 table)
+        if move == Move.LOW_KICK:
+            w = get_weight_hg(defender.species)
+            # sWeightToDamageTable pairs (min_weight_hg, base_power), ascending
+            # If no threshold exceeded, default 120
+            if w < 100:
+                move_power = 20
+            elif w < 250:
+                move_power = 40
+            elif w < 500:
+                move_power = 60
+            elif w < 1000:
+                move_power = 80
+            elif w < 2000:
+                move_power = 100
+            else:
+                move_power = 120
+
+        # Flail/Reversal: base power depends on user's HP ratio (Gen 3 scale table)
+        if move in (Move.FLAIL, Move.REVERSAL):
+            if attacker.maxHP > 0:
+                hp_scale = (attacker.hp * 48) // attacker.maxHP  # 0..48
+            else:
+                hp_scale = 48
+            # sFlailHpScaleToPowerTable: (1,200), (4,150), (9,100), (16,80), (32,40), (48,20)
+            if hp_scale <= 1:
+                move_power = 200
+            elif hp_scale <= 4:
+                move_power = 150
+            elif hp_scale <= 9:
+                move_power = 100
+            elif hp_scale <= 16:
+                move_power = 80
+            elif hp_scale <= 32:
+                move_power = 40
+            else:
+                move_power = 20
+
+        # Eruption / Water Spout: base power scales with user's HP (max 150 at full HP)
+        if move in (Move.ERUPTION, Move.WATER_SPOUT):
+            if attacker.maxHP > 0:
+                move_power = max(1, (150 * attacker.hp) // attacker.maxHP)
+
+        # Revenge: double base power if user was hit earlier this turn
+        if move == Move.REVENGE and self.battle_state is not None:
+            atk_id = attacker_id
+            if 0 <= atk_id < 4 and self.battle_state.protect_structs[atk_id].notFirstStrike:
+                move_power *= 2
+
         # Apply dynamic power modifiers for specific multi-turn moves
         # Rollout/Ice Ball ramp: doubles each successive turn; Defense Curl doubles further
         if move in (Move.ROLLOUT, Move.ICE_BALL) and self.battle_state is not None:
@@ -155,6 +272,8 @@ class DamageCalculator:
             move_type = type_override
         else:
             move_type = get_move_type(move)
+        if dynamic_type is not None:
+            move_type = dynamic_type
 
         # Get base stats (lines 3129-3132)
         attack = attacker.attack
