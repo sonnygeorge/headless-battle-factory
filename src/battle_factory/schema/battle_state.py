@@ -259,6 +259,10 @@ class BattleState(BaseModel):
     trick_room_timer: int = Field(ge=0, le=255, default=0)
     gravity_timer: int = Field(ge=0, le=255, default=0)
 
+    # Battle environment (for Nature Power / Secret Power)
+    # Mirrors BATTLE_ENVIRONMENT_* index order used by pokeemerald
+    battle_environment: int = Field(ge=0, le=15, default=9)
+
     # =================================================================
     # TURN ORDER AND SPEED
     # =================================================================

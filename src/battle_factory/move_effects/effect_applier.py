@@ -16,6 +16,7 @@ from src.battle_factory.move_effects import (
 )
 from src.battle_factory.move_effects.field_effects import SIDE_STATUS_MIST
 from src.battle_factory.constants import WEATHER_DEFAULT_DURATION
+from src.battle_factory.move_effects import meta_moves
 
 
 def _lcg_advance(seed: int) -> int:
@@ -40,8 +41,69 @@ def _choose_random_index(battle_state: BattleState, count: int) -> int:
     return roll % count
 
 
+def _execute_called_move(battle_state: BattleState, move: Move) -> None:
+    """Execute a called move (Metronome/Assist/Nature Power) within primary hook.
+    Follows the basic damage script pipeline using the current interpreter and library.
+
+    Source:
+    - pokeemerald/data/battle_scripts_1.s (jumptocalledmove for Assist/Sleep Talk; Metronome flow)
+    - pokeemerald/src/battle_script_commands.c (Cmd_metronome dispatch to effect script)
+    """
+    from src.battle_factory.battle_script import BattleScriptLibrary, BattleScriptInterpreter
+    from src.battle_factory.data.moves import get_move_effect
+
+    prev_move = battle_state.current_move
+    prev_slot = battle_state.current_move_slot
+
+    # Set called move
+    battle_state.current_move = move
+    battle_state.current_move_slot = 0  # arbitrary; PP not deducted due to hit_marker
+
+    lib = BattleScriptLibrary()
+    intr = BattleScriptInterpreter()
+    script = lib.get_script(get_move_effect(move))
+    # Execute called script
+    try:
+        intr.execute_script(script, battle_state)
+    except Exception:
+        pass
+    # Restore
+    battle_state.current_move = prev_move
+    battle_state.current_move_slot = prev_slot
+
+
 def apply_primary(battle_state: BattleState) -> None:
     effect = get_move_effect(battle_state.current_move)
+    # Meta-moves that select/execute another move immediately
+    if effect == MoveEffect.METRONOME:
+        # Deduct PP via script; execute called move with no PP deduction
+        chosen = meta_moves.select_metronome_move(battle_state)
+        if chosen == 0:
+            battle_state.move_result_flags |= 1 << 5  # MOVE_RESULT_FAILED
+            return
+        # Prevent called move from reducing PP
+        battle_state.hit_marker |= 1 << 2  # HITMARKER_NO_PPDEDUCT
+        _execute_called_move(battle_state, chosen)
+        return
+    elif effect == MoveEffect.NATURE_POWER:
+        chosen = meta_moves.select_nature_power_move(battle_state)
+        battle_state.hit_marker |= 1 << 2  # HITMARKER_NO_PPDEDUCT
+        _execute_called_move(battle_state, chosen)
+        return
+    elif effect == MoveEffect.ASSIST:
+        chosen = meta_moves.select_assist_move(battle_state, battle_state.battler_attacker)
+        if chosen == 0:
+            battle_state.move_result_flags |= 1 << 5  # MOVE_RESULT_FAILED
+            return
+        battle_state.hit_marker |= 1 << 2  # HITMARKER_NO_PPDEDUCT
+        _execute_called_move(battle_state, chosen)
+        return
+    elif effect == MoveEffect.SKETCH:
+        meta_moves.apply_sketch(battle_state)
+        return
+    elif effect == MoveEffect.ROLE_PLAY:
+        meta_moves.apply_role_play(battle_state)
+        return
     if effect == MoveEffect.SLEEP:
         status_effects.primary_sleep(battle_state)
     elif effect == MoveEffect.TOXIC:
@@ -467,6 +529,10 @@ def apply_primary(battle_state: BattleState) -> None:
 
 def apply_secondary(battle_state: BattleState) -> None:
     effect = get_move_effect(battle_state.current_move)
+    # Special-case Secret Power to map secondary by environment
+    if effect == MoveEffect.SECRET_POWER:
+        meta_moves.apply_secret_power_secondary(battle_state)
+        return
     if effect == MoveEffect.POISON_HIT:
         status_effects.secondary_poison(battle_state)
     elif effect == MoveEffect.BURN_HIT:

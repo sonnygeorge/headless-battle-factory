@@ -1267,6 +1267,56 @@ class BattleScriptLibrary:
                     BattleScriptCommand.END,
                 ]
             ),
+            # Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectMetronome),
+            #         pokeemerald/src/battle_script_commands.c (Cmd_metronome)
+            MoveEffect.METRONOME: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,  # select and execute called move
+                    BattleScriptCommand.END,
+                ]
+            ),
+            # Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectNaturePower),
+            #         pokeemerald/src/battle_script_commands.c (sNaturePowerMoves table)
+            MoveEffect.NATURE_POWER: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,  # choose environment move and execute
+                    BattleScriptCommand.END,
+                ]
+            ),
+            # Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectAssist),
+            #         pokeemerald/src/battle_script_commands.c (Cmd_assistattackselect)
+            MoveEffect.ASSIST: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,  # select party move and execute
+                    BattleScriptCommand.END,
+                ]
+            ),
+            # Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectSketch),
+            #         pokeemerald/src/battle_script_commands.c (copymovepermanently)
+            MoveEffect.SKETCH: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,  # perform sketch copy
+                    BattleScriptCommand.END,
+                ]
+            ),
+            # Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectRolePlay),
+            #         pokeemerald/src/battle_script_commands.c (Cmd_trycopyability)
+            MoveEffect.ROLE_PLAY: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,  # copy ability
+                    BattleScriptCommand.END,
+                ]
+            ),
             MoveEffect.ALWAYS_HIT: BattleScript(
                 [
                     # Always hits - skip accuracy check

@@ -40,9 +40,9 @@ Variable power/type
 - [DONE] Eruption/Water Spout: power from user HP ratio
 - [DONE] Revenge: boosted power if user was hit first
 - [DONE] Present: random power or heal outcome
-- Secret Power: terrain-dependent secondary effect
-- Nature Power: call terrain-dependent move
-- Assist/Metronome/Sketch/Role Play: meta-move behaviors
+- [DONE] Secret Power: terrain-dependent secondary effect
+- [DONE] Nature Power: call terrain-dependent move
+- [DONE] Assist/Metronome/Sketch/Role Play: meta-move behaviors
 
 Redirection/party/other
 - Follow Me: implement redirection via SideTimer.followme
