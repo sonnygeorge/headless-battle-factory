@@ -127,10 +127,14 @@ class EndTurnEffectsProcessor:
                     if self.battle_state.wish_future_knock.wishCounter[b] > 0:
                         self.battle_state.wish_future_knock.wishCounter[b] -= 1
                         if self.battle_state.wish_future_knock.wishCounter[b] == 0:
-                            target_id = self.battle_state.wish_future_knock.wishMonId[b]
+                            # Heal the battler currently in slot b, for half of the original user's max HP if available
+                            target_id = b
                             target = self.battle_state.battlers[target_id]
                             if target is not None and target.hp > 0:
-                                heal = max(1, target.maxHP // 2)
+                                src_id = self.battle_state.wish_future_knock.wishMonId[b]
+                                src = self.battle_state.battlers[src_id] if 0 <= src_id < 4 else None
+                                basis_max_hp = src.maxHP if src is not None else target.maxHP
+                                heal = max(1, basis_max_hp // 2)
                                 target.hp = min(target.maxHP, target.hp + heal)
                                 print(f"Wish healed battler {target_id} for {heal}")
                 self.battle_state.turn_counters_tracker = EndTurnFieldEffect.RAIN
@@ -311,7 +315,6 @@ class EndTurnEffectsProcessor:
                     battler.status2 = battler.status2.decrement_wrapped()
                     if battler.status2.get_wrapped_turns() == 0:
                         # Clear escape prevention when trap ends
-                        battler.status2 &= ~Status1(0)  # no-op
                         battler.status2 &= ~Status2.ESCAPE_PREVENTION
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.UPROAR
                 effect_processed = True

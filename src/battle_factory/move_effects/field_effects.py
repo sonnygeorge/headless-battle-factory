@@ -21,6 +21,13 @@ def _rand16_advance(battle_state: BattleState) -> int:
 
 
 def primary_protect(battle_state: BattleState) -> None:
+    """Apply Protect success with chaining odds.
+
+    Mirrors Emerald's Protect odds decrementing via sProtectSuccessRates and
+    sets the protected flag on success.
+
+    Source: pokeemerald/src/battle_script_commands.c (Cmd_protect)
+    """
     attacker_id = battle_state.battler_attacker
     ps = battle_state.protect_structs[attacker_id]
     ds = battle_state.disable_structs[attacker_id]
@@ -39,6 +46,11 @@ def primary_protect(battle_state: BattleState) -> None:
 
 
 def primary_endure(battle_state: BattleState) -> None:
+    """Apply Endure success with chaining odds.
+
+    Shares Protect's success table in Emerald.
+    Source: Cmd_endure (battle_script_commands.c)
+    """
     attacker_id = battle_state.battler_attacker
     ps = battle_state.protect_structs[attacker_id]
     ds = battle_state.disable_structs[attacker_id]
@@ -54,6 +66,10 @@ def primary_endure(battle_state: BattleState) -> None:
 
 
 def primary_substitute(battle_state: BattleState) -> None:
+    """Create a Substitute at the cost of 1/4 max HP.
+
+    Source: BattleScript_EffectSubstitute and related command handling.
+    """
     attacker_id = battle_state.battler_attacker
     mon = battle_state.battlers[attacker_id]
     if mon is None:
@@ -69,6 +85,7 @@ def primary_substitute(battle_state: BattleState) -> None:
 
 
 def primary_reflect(battle_state: BattleState) -> None:
+    """Set Reflect side status and 5-turn timer (Gen 3)."""
     attacker_id = battle_state.battler_attacker
     side = attacker_id % 2
     # Set side status bit and timer (5 turns in Emerald)
@@ -77,6 +94,7 @@ def primary_reflect(battle_state: BattleState) -> None:
 
 
 def primary_light_screen(battle_state: BattleState) -> None:
+    """Set Light Screen side status and 5-turn timer (Gen 3)."""
     attacker_id = battle_state.battler_attacker
     side = attacker_id % 2
     battle_state.side_statuses[side] |= SIDE_STATUS_LIGHTSCREEN
@@ -84,6 +102,7 @@ def primary_light_screen(battle_state: BattleState) -> None:
 
 
 def primary_spikes(battle_state: BattleState) -> None:
+    """Add a layer of Spikes to the opposing side (max 3 layers)."""
     # Spikes are set on the target's side
     attacker_id = battle_state.battler_attacker
     opponent_side = 1 - (attacker_id % 2)
@@ -96,6 +115,7 @@ def primary_spikes(battle_state: BattleState) -> None:
 
 
 def primary_safeguard(battle_state: BattleState) -> None:
+    """Set Safeguard side status and 5-turn timer (Gen 3)."""
     attacker_id = battle_state.battler_attacker
     side = attacker_id % 2
     battle_state.side_statuses[side] |= SIDE_STATUS_SAFEGUARD
@@ -103,16 +123,17 @@ def primary_safeguard(battle_state: BattleState) -> None:
 
 
 def primary_mist(battle_state: BattleState) -> None:
+    """Set Mist side status and 5-turn timer (Gen 3)."""
     attacker_id = battle_state.battler_attacker
     side = attacker_id % 2
     # Set Mist side bit; in Emerald, Mist duration is tracked (SideTimer.mistTimer), we mirror with 5 turns
     battle_state.side_statuses[side] |= SIDE_STATUS_MIST
-    # Reuse SideTimer-equivalent not modeled; store in battle_state via reflect_timers/light_screen_timers? We add own tracking in end-turn using side_statuses.
+    # Track Mist duration in battle_state.mist_timers; end-turn clears SIDE_STATUS_MIST when timer reaches 0.
     battle_state.mist_timers[side] = 5
 
 
 def primary_haze(battle_state: BattleState) -> None:
-    # Reset all battlers' stat stages to default (6)
+    """Reset all battlers' stat stages to default (6) as in Gen 3."""
     for mon in battle_state.battlers:
         if isinstance(mon, BattlePokemon):
             # statStages length is 8; keep HP index (0) untouched in Gen 3; we reset indices 1..7 to 6

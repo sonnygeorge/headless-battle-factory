@@ -18,18 +18,36 @@ def _rand_percent(battle_state: BattleState) -> int:
 
 
 def _roll_hit_count(battle_state: BattleState) -> int:
-    # Gen 3 distribution: 2 or 3 hits = 37.5% each, 4 or 5 hits = 12.5% each
-    roll = _rand_percent(battle_state) % 100
-    if roll < 37:
+    """Return 2-5 hit count using Gen 3 distribution.
+
+    Gen 3: 2/3 hits = 37.5% each; 4/5 hits = 12.5% each.
+    Implementation uses a 0..65535 roll and thresholding to reduce modulo bias.
+
+    Source: pokeemerald/src/battle_script_commands.c (multi-hit logic)
+    """
+    roll = _rand_percent(battle_state)  # 0..65535
+    # Thresholds for 37.5%, 75.0%, 87.5% of 65536
+    t2 = (65536 * 375) // 1000  # 24576
+    t3 = (65536 * 750) // 1000  # 49152
+    t4 = (65536 * 875) // 1000  # 57344
+    if roll < t2:
         return 2
-    if roll < 75:
+    if roll < t3:
         return 3
-    if roll < 87:
+    if roll < t4:
         return 4
     return 5
 
 
 def perform_multi_hit(battle_state: BattleState, fixed_hits: int | None = None) -> int:
+    """Apply EFFECT_MULTI_HIT damage 2-5 times (or fixed_hits when specified).
+
+    Mirrors Emerald's per-hit damage application: base calc → type → STAB → 85–100% roll
+    repeated per hit, accumulating total. Accuracy is handled by the script earlier.
+
+    Source: data/battle_scripts_1.s (BattleScript_EffectMultiHit) and
+            pokeemerald/src/battle_script_commands.c
+    """
     attacker: BattlePokemon | None = battle_state.battlers[battle_state.battler_attacker]
     defender: BattlePokemon | None = battle_state.battlers[battle_state.battler_target]
     if attacker is None or defender is None:
@@ -90,9 +108,10 @@ def perform_multi_hit(battle_state: BattleState, fixed_hits: int | None = None) 
 
 
 def perform_triple_kick(battle_state: BattleState) -> int:
-    """
-    Triple Kick (Gen 3): hits up to 3 times with escalating power 10, 20, 30.
-    Accuracy is checked before the loop by the script. We model damage escalation here.
+    """Triple Kick (Gen 3): 3 hits with power 10, 20, 30.
+
+    Source: BattleScript_EffectTripleKick in data/battle_scripts_1.s and
+            related handling in battle_script_commands.c
     """
     attacker: BattlePokemon | None = battle_state.battlers[battle_state.battler_attacker]
     defender: BattlePokemon | None = battle_state.battlers[battle_state.battler_target]

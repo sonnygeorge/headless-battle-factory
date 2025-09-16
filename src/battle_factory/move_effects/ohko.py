@@ -8,6 +8,19 @@ def _advance_rng(battle_state: BattleState) -> int:
 
 
 def apply_ohko(battle_state: BattleState) -> None:
+    """Apply Gen 3 OHKO move behavior.
+
+    Implements Emerald's logic for Fissure/Horn Drill/Guillotine/Sheer Cold:
+    - Fail if target has Sturdy
+    - Fail if attacker's level < target's level
+    - Sheer Cold fails vs Ice-types
+    - Accuracy chance = 30% + (attackerLevel - targetLevel), clamped 1..100
+    - Lock-On/Mind Reader causes OHKO to hit regardless of accuracy
+
+    Sources:
+      - pokeemerald/src/battle_script_commands.c (Cmd_accuracycheck specifics)
+      - data/battle_scripts_1.s (BattleScript_EffectOHKO)
+    """
     attacker_id = battle_state.battler_attacker
     target_id = battle_state.battler_target
     attacker = battle_state.battlers[attacker_id]
@@ -42,10 +55,10 @@ def apply_ohko(battle_state: BattleState) -> None:
     if chance > 100:
         chance = 100
 
-    # Lock-On/Mind Reader: If sure-hit is set on this target, bypass accuracy roll
+    # Lock-On/Mind Reader: target remembers the battler with sure hit
     sure_hit = False
     try:
-        if battle_state.disable_structs[attacker_id].battlerWithSureHit == target_id:
+        if battle_state.disable_structs[target_id].battlerWithSureHit == attacker_id:
             sure_hit = True
     except Exception:
         pass

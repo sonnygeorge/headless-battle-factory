@@ -11,11 +11,16 @@ SIDE_STATUS_SAFEGUARD = 1 << 5
 
 
 def _is_safeguarded(battle_state: BattleState, target_id: int) -> bool:
+    """Return True if the target's side is protected by Safeguard."""
     side = target_id % 2
     return (battle_state.side_statuses[side] & SIDE_STATUS_SAFEGUARD) != 0
 
 
 def _can_apply_major_status(battle_state: BattleState, target_id: int) -> bool:
+    """Check if a major status can be applied to target in Gen 3.
+
+    Enforces existing status, Substitute, and Safeguard checks.
+    """
     target = battle_state.battlers[target_id]
     if target is None:
         return False
@@ -32,6 +37,10 @@ def _can_apply_major_status(battle_state: BattleState, target_id: int) -> bool:
 
 
 def _apply_sleep(battle_state: BattleState, target_id: int, turns: int) -> None:
+    """Apply sleep with specified turns, respecting Gen 3 immunities.
+
+    Insomnia/Vital Spirit, Uproar block sleep.
+    """
     target = battle_state.battlers[target_id]
     if target is None:
         return
@@ -47,6 +56,7 @@ def _apply_sleep(battle_state: BattleState, target_id: int, turns: int) -> None:
 
 
 def _apply_poison(battle_state: BattleState, target_id: int, toxic: bool) -> None:
+    """Apply regular or toxic poison, with Steel/Poison-type and Ability immunities."""
     target = battle_state.battlers[target_id]
     if target is None:
         return
@@ -63,6 +73,7 @@ def _apply_poison(battle_state: BattleState, target_id: int, toxic: bool) -> Non
 
 
 def _apply_burn(battle_state: BattleState, target_id: int) -> None:
+    """Apply burn, blocked by Fire-type and Water Veil (Gen 3)."""
     target = battle_state.battlers[target_id]
     if target is None:
         return
@@ -75,6 +86,7 @@ def _apply_burn(battle_state: BattleState, target_id: int) -> None:
 
 
 def _apply_paralysis(battle_state: BattleState, target_id: int) -> None:
+    """Apply paralysis, blocked by Electric-type and Limber (Gen 3)."""
     target = battle_state.battlers[target_id]
     if target is None:
         return
@@ -87,6 +99,7 @@ def _apply_paralysis(battle_state: BattleState, target_id: int) -> None:
 
 
 def _apply_freeze(battle_state: BattleState, target_id: int) -> None:
+    """Apply freeze, blocked by Magma Armor (Gen 3)."""
     target = battle_state.battlers[target_id]
     if target is None:
         return
@@ -98,6 +111,10 @@ def _apply_freeze(battle_state: BattleState, target_id: int) -> None:
 
 
 def primary_sleep(battle_state: BattleState) -> None:
+    """Primary sleep effect (e.g., Sleep Powder, Hypnosis).
+
+    Source: BattleScript_EffectSleep in data/battle_scripts_1.s
+    """
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
@@ -106,6 +123,10 @@ def primary_sleep(battle_state: BattleState) -> None:
 
 
 def primary_poison(battle_state: BattleState) -> None:
+    """Primary poison effect.
+
+    Source: BattleScript_EffectPoison
+    """
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
@@ -113,6 +134,10 @@ def primary_poison(battle_state: BattleState) -> None:
 
 
 def primary_toxic(battle_state: BattleState) -> None:
+    """Primary badly poison effect (Toxic).
+
+    Source: BattleScript_EffectToxic
+    """
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
@@ -120,11 +145,16 @@ def primary_toxic(battle_state: BattleState) -> None:
 
 
 def secondary_poison(battle_state: BattleState) -> None:
-    # For secondary, same as primary but respect Substitute/Safeguard/Shield Dust handled earlier
+    """Secondary poison on-hit effect.
+
+    Same as primary but assumes script already handled Substitute/Safeguard/Shield Dust.
+    Source: BattleScript_EffectPoisonHit path
+    """
     primary_poison(battle_state)
 
 
 def secondary_burn(battle_state: BattleState) -> None:
+    """Secondary burn on-hit effect."""
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
@@ -132,6 +162,7 @@ def secondary_burn(battle_state: BattleState) -> None:
 
 
 def secondary_paralysis(battle_state: BattleState) -> None:
+    """Secondary paralysis on-hit effect."""
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
@@ -139,6 +170,7 @@ def secondary_paralysis(battle_state: BattleState) -> None:
 
 
 def secondary_freeze(battle_state: BattleState) -> None:
+    """Secondary freeze on-hit effect."""
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
@@ -146,6 +178,7 @@ def secondary_freeze(battle_state: BattleState) -> None:
 
 
 def secondary_flinch(battle_state: BattleState) -> None:
+    """Secondary flinch on-hit effect (Inner Focus blocks)."""
     target_id = battle_state.battler_target
     target = battle_state.battlers[target_id]
     if target is None:
@@ -170,6 +203,10 @@ def _advance_rng(battle_state: BattleState) -> int:
 
 
 def primary_confuse(battle_state: BattleState) -> None:
+    """Primary confusion effect (2-5 turns), respecting immunities.
+
+    Source: BattleScript_EffectConfuse
+    """
     target_id = battle_state.battler_target
     target = battle_state.battlers[target_id]
     if target is None:
@@ -187,11 +224,15 @@ def primary_confuse(battle_state: BattleState) -> None:
 
 
 def secondary_confuse(battle_state: BattleState) -> None:
-    # Same as primary but used from on-hit effects
+    """Secondary confusion on-hit effect."""
     primary_confuse(battle_state)
 
 
 def primary_attract(battle_state: BattleState) -> None:
+    """Primary infatuation (Attract), respecting Oblivious and Substitute.
+
+    Source: BattleScript_EffectAttract
+    """
     target_id = battle_state.battler_target
     attacker_id = battle_state.battler_attacker
     target = battle_state.battlers[target_id]
@@ -208,6 +249,10 @@ def primary_attract(battle_state: BattleState) -> None:
 
 
 def primary_taunt(battle_state: BattleState) -> None:
+    """Primary Taunt (2-5 turns) status.
+
+    Source: BattleScript_EffectTaunt
+    """
     target_id = battle_state.battler_target
     ds = battle_state.disable_structs[target_id]
     # Duration 2-5 turns
@@ -216,6 +261,10 @@ def primary_taunt(battle_state: BattleState) -> None:
 
 
 def primary_torment(battle_state: BattleState) -> None:
+    """Primary Torment status on target.
+
+    Source: BattleScript_EffectTorment
+    """
     target_id = battle_state.battler_target
     target = battle_state.battlers[target_id]
     if target is None:
@@ -224,6 +273,10 @@ def primary_torment(battle_state: BattleState) -> None:
 
 
 def primary_disable(battle_state: BattleState) -> None:
+    """Primary Disable: disable last used move or random other with PP, 2-5 turns.
+
+    Source: BattleScript_EffectDisable
+    """
     target_id = battle_state.battler_target
     target = battle_state.battlers[target_id]
     if target is None:
@@ -253,6 +306,10 @@ def primary_disable(battle_state: BattleState) -> None:
 
 
 def primary_encore(battle_state: BattleState) -> None:
+    """Primary Encore: force last used move for 3-7 turns.
+
+    Source: BattleScript_EffectEncore
+    """
     target_id = battle_state.battler_target
     target = battle_state.battlers[target_id]
     if target is None:

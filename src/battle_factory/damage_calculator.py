@@ -171,6 +171,32 @@ class DamageCalculator:
         # Apply item effects (lines 3134-3156, 3170-3228)
         attack, sp_attack, defense, sp_defense = self._apply_item_effects(attacker, defender, attack, sp_attack, defense, sp_defense, move_type)
 
+        # Type-bonus hold items (lines 3170-3182 in C): +10% power if item matches move type
+        # Implement sHoldEffectToType lookup inline via a mapping
+        hold_effect_to_type: dict[HoldEffect, Type] = {
+            HoldEffect.BUG_POWER: Type.BUG,
+            HoldEffect.ROCK_POWER: Type.ROCK,
+            HoldEffect.GRASS_POWER: Type.GRASS,
+            HoldEffect.DARK_POWER: Type.DARK,
+            HoldEffect.FIGHTING_POWER: Type.FIGHTING,
+            HoldEffect.ELECTRIC_POWER: Type.ELECTRIC,
+            HoldEffect.WATER_POWER: Type.WATER,
+            HoldEffect.FLYING_POWER: Type.FLYING,
+            HoldEffect.POISON_POWER: Type.POISON,
+            HoldEffect.ICE_POWER: Type.ICE,
+            HoldEffect.GHOST_POWER: Type.GHOST,
+            HoldEffect.PSYCHIC_POWER: Type.PSYCHIC,
+            HoldEffect.FIRE_POWER: Type.FIRE,
+            HoldEffect.DRAGON_POWER: Type.DRAGON,
+            HoldEffect.NORMAL_POWER: Type.NORMAL,
+            HoldEffect.GROUND_POWER: Type.GROUND,
+            HoldEffect.STEEL_POWER: Type.STEEL,
+        }
+        att_hold = get_hold_effect(attacker.item)
+        boost_type = hold_effect_to_type.get(att_hold)
+        if boost_type is not None and boost_type == move_type:
+            move_power = (110 * move_power) // 100
+
         # Apply additional ability effects (lines 3202-3227)
         attack, sp_attack, move_power = self._apply_ability_effects(attacker, defender, attack, sp_attack, move_power, move_type)
 
@@ -387,8 +413,11 @@ class DamageCalculator:
                     final_damage *= 2
                     ds.chargeTimer = 0
 
-        # TODO: Apply Charge status for Electric moves (lines 1298-1299)
-        # TODO: Apply Helping Hand boost (lines 1300-1301)
+        # Apply Helping Hand boost (lines 1300-1301)
+        if self.battle_state is not None:
+            attacker_id = self.battle_state.battler_attacker
+            if 0 <= attacker_id < 4 and self.battle_state.protect_structs[attacker_id].helpingHand:
+                final_damage = (final_damage * 15) // 10
 
         return final_damage
 

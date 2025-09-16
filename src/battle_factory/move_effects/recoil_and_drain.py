@@ -3,7 +3,16 @@ from src.battle_factory.enums import Ability
 
 
 def apply_drain_heal(battle_state: BattleState, fraction_num: int, fraction_den: int) -> None:
-    # Heal the attacker for a fraction of damage dealt, accounting for Liquid Ooze
+    """Drain healing for absorb moves.
+
+    Mirrors Gen 3 Emerald behavior where the user heals a fraction of the
+    damage dealt, unless the target has Liquid Ooze (which deals damage
+    to the user instead).
+
+    Source: pokeemerald/src/battle_script_commands.c
+      - Cmd_seteffectsecondary (drain flag handling)
+      - Cmd_datahpupdate interaction with gBattleMoveDamage
+    """
     attacker_id = battle_state.battler_attacker
     target_id = battle_state.battler_target
     attacker = battle_state.battlers[attacker_id]
@@ -27,7 +36,14 @@ def apply_drain_heal(battle_state: BattleState, fraction_num: int, fraction_den:
 
 
 def apply_recoil(attacker_hp: int, recoil_num: int, recoil_den: int, damage_dealt: int) -> int:
-    # Return new HP after recoil based on damage dealt
+    """Generic recoil calculation based on damage dealt.
+
+    Applies minimum 1 recoil when damage was dealt, matching Emerald's
+    manipulatedamage semantics for recoil families.
+
+    Source: pokeemerald/src/battle_script_commands.c
+      - Cmd_manipulatedamage cases (DMG_RECOIL_* families)
+    """
     recoil = (damage_dealt * recoil_num) // recoil_den
     if recoil < 1 and damage_dealt > 0:
         recoil = 1

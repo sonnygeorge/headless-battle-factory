@@ -8,17 +8,30 @@ from src.battle_factory.enums import Move
 
 
 def start_charging(battle_state: BattleState) -> None:
+    """Mark user as charging for two-turn moves.
+
+    Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectTwoTurns)
+            and pokeemerald/src/battle_script_commands.c
+    """
     attacker_id = battle_state.battler_attacker
     # Mark charging turn in ProtectStruct
     battle_state.protect_structs[attacker_id].chargingTurn = True
 
 
 def clear_charging(battle_state: BattleState) -> None:
+    """Clear charging flag after the second turn resolves.
+
+    Source: same as start_charging
+    """
     attacker_id = battle_state.battler_attacker
     battle_state.protect_structs[attacker_id].chargingTurn = False
 
 
 def set_semi_invulnerable(battle_state: BattleState, flag: str, value: bool) -> None:
+    """Set the appropriate semi-invulnerability status3 flag for Fly/Dig/Dive.
+
+    Source: BattleScript_EffectSemiInvulnerable and associated checks.
+    """
     idx = battle_state.battler_attacker
     if flag == "air":
         battle_state.status3_on_air[idx] = value
@@ -29,7 +42,13 @@ def set_semi_invulnerable(battle_state: BattleState, flag: str, value: bool) -> 
 
 
 def resolve_two_turn_damage(battle_state: BattleState) -> None:
-    """Compute and apply damage like a normal hit for the current move."""
+    """Compute and apply damage like a normal hit for the current move.
+
+    Mirrors the second-turn resolution for Razor Wind/Sky Attack/Solar Beam
+    and semi-invulnerable moves.
+
+    Sources: data/battle_scripts_1.s and battle_script_commands.c
+    """
     attacker_id = battle_state.battler_attacker
     target_id = battle_state.battler_target
     attacker = battle_state.battlers[attacker_id]

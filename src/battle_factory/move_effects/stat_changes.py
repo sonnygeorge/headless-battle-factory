@@ -19,6 +19,14 @@ SIDE_STATUS_MIST = 1 << 8
 
 
 def _can_lower_stat(battle_state: BattleState, target_id: int, stat_index: int) -> bool:
+    """Check if a stat can be lowered based on Gen 3 protections.
+
+    Accounts for Mist side status, Clear Body/White Smoke, Hyper Cutter (Atk),
+    and Keen Eye (Accuracy).
+
+    Sources: pokeemerald/src/battle_script_commands.c stat change handling
+    and ability checks.
+    """
     target = battle_state.battlers[target_id]
     if target is None:
         return False
@@ -44,12 +52,20 @@ def _can_lower_stat(battle_state: BattleState, target_id: int, stat_index: int) 
 
 
 def _change_stage(mon: BattlePokemon, stat_index: int, delta: int) -> None:
+    """Apply a bounded stage change to a battler's stat.
+
+    Stages are clamped within MIN_STAT_STAGE .. MAX_STAT_STAGE.
+    """
     current = mon.statStages[stat_index]
     new_stage = max(MIN_STAT_STAGE, min(MAX_STAT_STAGE, current + delta))
     mon.statStages[stat_index] = new_stage
 
 
 def raise_stat_user(battle_state: BattleState, stat_index: int, stages: int = 1) -> None:
+    """Raise user's stat by given stages (default 1).
+
+    Mirrors BattleScript_Effect*Up scripts.
+    """
     user_id = battle_state.battler_attacker
     user = battle_state.battlers[user_id]
     if user is None:
@@ -58,6 +74,10 @@ def raise_stat_user(battle_state: BattleState, stat_index: int, stages: int = 1)
 
 
 def lower_stat_target(battle_state: BattleState, stat_index: int, stages: int = 1) -> None:
+    """Lower target's stat by given stages (default 1), respecting immunities.
+
+    Mirrors BattleScript_Effect*Down scripts and ability/side protections.
+    """
     target_id = battle_state.battler_target
     target = battle_state.battlers[target_id]
     if target is None:

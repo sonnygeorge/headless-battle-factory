@@ -7,6 +7,7 @@ from src.battle_factory.data.moves import get_move_effect, get_move_type, get_mo
 from src.battle_factory.data.items import get_hold_effect
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
+from src.battle_factory.damage_calculator import is_type_physical
 from src.battle_factory.constants import (
     HITMARKER_NO_PPDEDUCT,
     HITMARKER_NO_ATTACKSTRING,
@@ -503,8 +504,9 @@ class BattleScriptInterpreter:
         if effect == MoveEffect.ALWAYS_HIT or effect == MoveEffect.VITAL_THROW:
             return True
 
-        # Lock-On/Mind Reader
-        if battle_state.disable_structs[battle_state.battler_attacker].battlerWithSureHit == battle_state.battler_target:
+        # Lock-On/Mind Reader: target has sure-hit set to the attacker
+        target_id = battle_state.battler_target
+        if battle_state.disable_structs[target_id].battlerWithSureHit == battle_state.battler_attacker:
             return True
 
         # Thunder weather behavior
@@ -534,8 +536,8 @@ class BattleScriptInterpreter:
         final_acc = final_acc * acc_num // acc_den
         final_acc = final_acc * eva_den // eva_num
 
-        # Hustle reduces accuracy of physical moves by 20% (approx.)
-        if attacker.ability == Ability.HUSTLE:
+        # Hustle reduces accuracy for physical moves only (approx. 20%)
+        if attacker.ability == Ability.HUSTLE and is_type_physical(move_data.type):
             final_acc = (final_acc * 80) // 100
 
         # Clamp 1..100
@@ -709,8 +711,10 @@ class BattleScriptInterpreter:
         # TODO: Implement STATUS3_CANT_SCORE_A_CRIT, tutorial battle flags
         # For now, skip these checks as they're not relevant to Battle Factory
 
-        # Roll for critical hit using battle state RNG
-        if self._random_crit_roll(battle_state) % CRIT_CHANCE_TABLE[crit_chance] == 0:
+        # Roll for critical hit using battle state RNG (use upper 16 bits thresholding for fairness)
+        rnd = self._random_crit_roll(battle_state)
+        # Use upper 16 bits to approximate uniformity, then modulo by table denom (as in C)
+        if ((rnd >> 16) & 0xFFFF) % CRIT_CHANCE_TABLE[crit_chance] == 0:
             battle_state.critical_multiplier = 2
         else:
             battle_state.critical_multiplier = 1
@@ -889,7 +893,7 @@ class BattleScriptInterpreter:
 
         # If the target is currently Biding, accumulate damage and remember last attacker
         t_id = battle_state.battler_target
-        if battle_state.disable_structs[t_id].rolloutTimer > 0:
+        if battle_state.disable_structs[t_id].bideTimer > 0:
             battle_state.bide_damage[t_id] += dealt
             battle_state.bide_target[t_id] = battle_state.battler_attacker
 

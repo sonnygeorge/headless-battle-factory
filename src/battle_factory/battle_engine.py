@@ -62,7 +62,7 @@ class BattleEngine:
         # Initialize with empty battle state
         self.battle_state = BattleState()
 
-    def initialize_battle(self, player_pokemon: BattlePokemon, opponent_pokemon: BattlePokemon, player_pokemon_2: Optional[BattlePokemon] = None, opponent_pokemon_2: Optional[BattlePokemon] = None) -> None:
+    def initialize_battle(self, player_pokemon: BattlePokemon, opponent_pokemon: BattlePokemon, player_pokemon_2: BattlePokemon | None = None, opponent_pokemon_2: Optional[BattlePokemon] = None, seed: Optional[int] = None) -> None:
         """
         Initialize a battle with Pokemon
 
@@ -95,7 +95,8 @@ class BattleEngine:
         self.battle_state.active_party_index[2] = 1 if player_pokemon_2 else -1
         self.battle_state.active_party_index[3] = 1 if opponent_pokemon_2 else -1
 
-        self.battle_state.rng_seed = int(time.time()) % 0xFFFFFFFF
+        # Allow deterministic seeding for tests; default to time-based if not provided
+        self.battle_state.rng_seed = (seed if seed is not None else int(time.time())) % 0xFFFFFFFF
 
     def process_turn(self, actions: list[UserBattleAction]) -> BattleState:
         """
@@ -374,7 +375,7 @@ class BattleEngine:
             if priority1 == priority2:  # Same priority, compare speeds
                 if speed1 == speed2:
                     # Random tiebreaker (line 4728 in C)
-                    return (self.battle_state.rng_seed & 1) == 0
+                    return (self._rand16() & 1) == 0
                 else:
                     return speed1 > speed2  # Higher speed goes first
             else:
@@ -382,7 +383,7 @@ class BattleEngine:
         else:  # Both priority 0, compare speeds (lines 4742-4749 in C)
             if speed1 == speed2:
                 # Random tiebreaker (line 4745 in C)
-                return (self.battle_state.rng_seed & 1) == 0
+                return (self._rand16() & 1) == 0
             else:
                 return speed1 > speed2  # Higher speed goes first
 
