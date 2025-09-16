@@ -227,3 +227,4 @@ HITMARKER_NO_ATTACKSTRING_3 = 1 << 9
 MSG_NO_EFFECT = "It has no effect!"
 MSG_NOT_VERY_EFFECTIVE = "It's not very effective..."
 MSG_SUPER_EFFECTIVE = "It's super effective!"
+MSG_FOCUS_PUNCH_LOST_FOCUS = "But it lost its focus!"

@@ -1,6 +1,6 @@
 import time
 from enum import IntEnum
-from typing import Optional
+from typing import Optional, cast
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +10,7 @@ from src.battle_factory.damage_calculator import apply_stat_mod
 from src.battle_factory.data.items import get_hold_effect, get_hold_effect_param
 from src.battle_factory.data.moves import get_move_data, get_move_effect
 from src.battle_factory.end_turn_effects import EndTurnEffectsProcessor
-from src.battle_factory.enums import Move, Species, Ability, Item, Type, EndTurnFieldEffect, EndTurnBattlerEffect
+from src.battle_factory.enums import Move, Species, Ability, Item, Type, EndTurnFieldEffect, EndTurnBattlerEffect, Status2
 from src.battle_factory.enums.hold_effect import HoldEffect
 from src.battle_factory.enums.move_effect import MoveEffect
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
@@ -61,6 +61,8 @@ class BattleEngine:
 
         # Initialize with empty battle state
         self.battle_state = BattleState()
+        # Internal: track pending Baton Pass source battler id (None if not pending)
+        self._pending_baton_pass_from: Optional[int] = None
 
     def initialize_battle(self, player_pokemon: BattlePokemon, opponent_pokemon: BattlePokemon, player_pokemon_2: BattlePokemon | None = None, opponent_pokemon_2: Optional[BattlePokemon] = None, seed: Optional[int] = None) -> None:
         """
@@ -491,12 +493,42 @@ class BattleEngine:
         """Clear effects that end when the battler leaves the field."""
         # End Imprison if user leaves
         self.battle_state.imprison_active[battler_id] = False
+        # Reset Rollout/Ice Ball sequence on switch
+        ds = self.battle_state.disable_structs[battler_id]
+        ds.rolloutTimer = 0
+        ds.rolloutTimerStartValue = 0
+        # Reset Fury Cutter ramp on switch
+        ds.furyCutterCounter = 0
+        # Handle Baton Pass transfer: if the outgoing battler used Baton Pass, transfer allowed volatiles
+        ss = self.battle_state.special_statuses[battler_id]
+        # If Baton Pass was used by this battler earlier this turn, mark pending transfer.
+        if ss.traced:
+            self._pending_baton_pass_from = battler_id
+        else:
+            self._pending_baton_pass_from = None
 
     def _clear_on_switch_in(self, battler_id: int) -> None:
         """Reset temporary structures for the incoming battler."""
         self.battle_state.protect_structs[battler_id] = ProtectStruct()
         self.battle_state.disable_structs[battler_id] = DisableStruct()
         self.battle_state.special_statuses[battler_id] = SpecialStatus()
+        # If a Baton Pass is pending from this side, transfer allowed statuses/stat stages
+        src = self._pending_baton_pass_from
+        if src is not None and (src % 2) == (battler_id % 2):
+            giver = self.battle_state.battlers[src]
+            receiver = self.battle_state.battlers[battler_id]
+            if giver is not None and receiver is not None:
+                # Transfer stat stages
+                receiver.statStages = giver.statStages.copy()
+                # Transfer Substitute and some volatiles (approximation): Substitute only
+                if giver.status2.has_substitute():
+                    receiver.status2 |= Status2.SUBSTITUTE
+                    # Carry substitute HP via disable_structs
+                    dst_ds = self.battle_state.disable_structs[battler_id]
+                    src_ds = self.battle_state.disable_structs[src]
+                    dst_ds.substituteHP = src_ds.substituteHP
+            # Clear pending flag
+            self._pending_baton_pass_from = None
 
     def _apply_entry_hazards(self, battler_id: int) -> None:
         """Apply entry hazards (Gen 3: Spikes only) to the battler that just switched in."""

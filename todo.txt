@@ -1,25 +1,31 @@
 Remaining move effects to implement for a comprehensive port of move effect mechanics:
 
 Multi-turn/locking and specials
-- Rollout/Ice Ball: ensure turn timers and reset behavior (we ramp power already)
-- Fury Cutter: ensure counter reset on miss/switch (we ramp power already)
-- Focus Punch: add user-facing fail message/flag path (logic exists)
+- [DONE] Rollout/Ice Ball: ensure turn timers and reset behavior
+- [DONE] Fury Cutter: ensure counter reset on miss/switch
+- [DONE] Focus Punch: add user-facing fail message/flag path
 - Uproar: verify global sleep prevention timing across turns (wake implemented)
 
 Delayed/turn-timed
 - Doom Desire: mirror Future Sight handling (uses same pipeline)
 
 Field/item interactions
-- Rapid Spin: free partial-trap and Leech Seed; remove Spikes from user’s side
-- Brick Break: remove Reflect/Light Screen on hit (and apply after damage ordering)
-- Knock Off: remove target’s item and mark in knockedOffMons
-- Thief/Covet: steal target item if user has none; respect constraints
-- Trick: swap items between user/target
+- [DONE] Rapid Spin: free partial-trap and Leech Seed; remove Spikes from user’s side
+- [DONE] Brick Break: remove Reflect/Light Screen on hit (and apply after damage ordering)
+- [DONE] Knock Off: remove target’s item and mark in knockedOffMons
+- [DONE] Thief/Covet: steal target item if user has none; respect constraints
+- [DONE] Trick: swap items between user/target
 
 Status/volatile specials
-- Yawn: drowsy then sleep next turn; respect Uproar/Insomnia/etc.
-- Will-O-Wisp: primary burn move
-- Swagger/Flatter: confuse + raise target’s Atk/SpA by 2
+- [DONE] Yawn: drowsy then sleep next turn; respect Uproar/Insomnia/etc.
+- [DONE] Will-O-Wisp: primary burn move
+- [DONE] Swagger/Flatter: confuse + raise target’s Atk/SpA by 2
+- [DONE] Mean Look: apply escape prevention to target
+- [DONE] Psych Up: copy target’s stat stages
+- [DONE] Baton Pass: pass stat stages and allowed volatiles (Substitute)
+- [DONE] Magic Coat: reflectable status moves (flag set for turn)
+- [DONE] Snatch: steal self-targeting buffs this turn (flag set for turn)
+- [DONE] Flatter implemented
 - Mean Look: apply escape prevention to target
 - Psych Up: copy target’s stat stages
 - Baton Pass: pass stat stages and allowed volatiles (Substitute, etc.)

@@ -16,6 +16,8 @@ from src.battle_factory.constants import (
     STAT_ATK,
     STAT_DEF,
     MOVE_RESULT_MISSED,
+    MOVE_RESULT_FAILED,
+    MSG_FOCUS_PUNCH_LOST_FOCUS,
 )
 from src.battle_factory.move_effects.two_turn import is_target_invulnerable, can_hit_through_invulnerability
 from src.battle_factory.enums import MoveEffect, Ability, Move
@@ -465,7 +467,15 @@ class BattleScriptInterpreter:
         if immobilized:
             # No PP deduction, mark failed, and end script early
             battle_state.hit_marker |= HITMARKER_NO_PPDEDUCT
-            battle_state.move_result_flags |= MOVE_RESULT_MISSED  # use missed/fail bit; refine to FAILED if desired
+            # If Focus Punch lost focus, use FAILED and append message; otherwise mark as missed for now
+            if md and md.effect == MoveEffect.FOCUS_PUNCH and battle_state.protect_structs[attacker_id].notFirstStrike:
+                battle_state.move_result_flags |= MOVE_RESULT_FAILED
+                try:
+                    battle_state.messages.append(MSG_FOCUS_PUNCH_LOST_FOCUS)
+                except Exception:
+                    pass
+            else:
+                battle_state.move_result_flags |= MOVE_RESULT_MISSED
             # End current script
             self.current_script.pc = len(self.current_script.commands)
             return True
@@ -551,6 +561,17 @@ class BattleScriptInterpreter:
         roll = (battle_state.rng_seed >> 16) % 100 + 1  # 1..100
         if roll > final_acc:
             battle_state.move_result_flags |= MOVE_RESULT_MISSED
+            # Rollout/Ice Ball: reset timer on miss
+            md = move_data
+            if md and md.effect == MoveEffect.ROLLOUT:
+                attacker_id = battle_state.battler_attacker
+                ds = battle_state.disable_structs[attacker_id]
+                ds.rolloutTimer = 0
+                ds.rolloutTimerStartValue = 0
+            # Fury Cutter: reset counter on miss
+            if md and md.effect == MoveEffect.FURY_CUTTER:
+                attacker_id = battle_state.battler_attacker
+                battle_state.disable_structs[attacker_id].furyCutterCounter = 0
             self.current_script.pc = len(self.current_script.commands)
             return True
 
@@ -597,11 +618,8 @@ class BattleScriptInterpreter:
 
         # Handle Pressure ability increasing PP cost
         # For complete fidelity, Pressure can stack on multi-target moves.
-        try:
-            move_data = get_move_data(battle_state.current_move)
-            move_target = move_data.target
-        except Exception:
-            move_target = None
+        move_data = get_move_data(battle_state.current_move)
+        move_target = move_data.target if move_data else None
 
         # Only apply Pressure if not explicitly marked as not affected
         if not battle_state.special_statuses[attacker_id].ppNotAffectedByPressure:
@@ -631,6 +649,14 @@ class BattleScriptInterpreter:
 
         # Record last move for Torment/Encore/etc.
         battle_state.last_moves[attacker_id] = battle_state.current_move
+
+        # Rollout/Ice Ball: start/reset timer on use if not already active. Emerald starts a 5-turn sequence.
+        md = move_data
+        if md and md.effect == MoveEffect.ROLLOUT:
+            ds = battle_state.disable_structs[attacker_id]
+            if ds.rolloutTimer == 0:
+                ds.rolloutTimer = 5
+                ds.rolloutTimerStartValue = 5
 
         # Clear NO_PPDEDUCT like C implementation at end
         battle_state.hit_marker &= ~HITMARKER_NO_PPDEDUCT
@@ -879,8 +905,6 @@ class BattleScriptInterpreter:
         # Determine if the move was physical or special based on type split (pre-Gen4 by type)
         move_type = get_move_type(battle_state.current_move)
         # Simple physical type set from damage_calculator.is_type_physical
-        from src.battle_factory.damage_calculator import is_type_physical
-
         dealt = min(damage, target.hp)
         if is_type_physical(move_type):
             battle_state.protect_structs[battle_state.battler_target].physicalDmg = dealt
@@ -900,6 +924,22 @@ class BattleScriptInterpreter:
         target.hp = max(0, target.hp - damage)
         # Mark that the target has been hit this turn (for Focus Punch cancel)
         battle_state.protect_structs[battle_state.battler_target].notFirstStrike = True
+
+        # If the current move is Rollout or Ice Ball and it hit, decrement the user's rollout timer
+        md = get_move_data(battle_state.current_move)
+        if md and md.effect == MoveEffect.ROLLOUT:
+            atk_id = battle_state.battler_attacker
+            ds = battle_state.disable_structs[atk_id]
+            if ds.rolloutTimer > 0:
+                ds.rolloutTimer -= 1
+                if ds.rolloutTimer == 0:
+                    ds.rolloutTimerStartValue = 0
+        # Fury Cutter: increment counter on successful hit (max out is enforced in damage calculation)
+        if md and md.effect == MoveEffect.FURY_CUTTER:
+            atk_id = battle_state.battler_attacker
+            ds = battle_state.disable_structs[atk_id]
+            # Start at 1 and cap somewhere reasonable (game caps power, we can cap counter for safety)
+            ds.furyCutterCounter = min(5, max(1, ds.furyCutterCounter + 1))
 
         return True
 

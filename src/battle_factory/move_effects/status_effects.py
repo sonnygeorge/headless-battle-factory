@@ -3,6 +3,7 @@ from src.battle_factory.enums.status import Status1, Status2
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.data.moves import get_move_type
 from src.battle_factory.enums.move import Move
+from src.battle_factory.move_effects import stat_changes
 
 # Side status bitmasks from include/constants/battle.h
 SIDE_STATUS_REFLECT = 1 << 0
@@ -161,6 +162,39 @@ def secondary_burn(battle_state: BattleState) -> None:
     _apply_burn(battle_state, target_id)
 
 
+def primary_will_o_wisp(battle_state: BattleState) -> None:
+    """Primary burn status infliction (Will-O-Wisp).
+
+    Source: BattleScript_EffectWillOWisp
+    """
+    target_id = battle_state.battler_target
+    if not _can_apply_major_status(battle_state, target_id):
+        return
+    _apply_burn(battle_state, target_id)
+
+
+def primary_yawn(battle_state: BattleState) -> None:
+    """Apply Yawn: target becomes drowsy; after one full turn, target sleeps unless blocked.
+
+    Simplified faithful behavior: set a 2-turn countdown (this turn → next end-turn → then sleep),
+    respecting Insomnia/Vital Spirit/Uproar at time of sleep in end-turn processor.
+    """
+    target_id = battle_state.battler_target
+    target = battle_state.battlers[target_id]
+    if target is None:
+        return
+    # Substitute blocks
+    if target.status2.has_substitute():
+        return
+    # Already statused: Yawn still makes drowsy in Gen 3? In Gen 3, Yawn fails if target already has a status.
+    if target.status1.has_major_status():
+        return
+    # Mark with a yawn timer using disable_structs.tauntTimer2 as a spare 4-bit timer slot
+    ds = battle_state.disable_structs[target_id]
+    # Use 2 as countdown: after next end turn reaches 0, attempt sleep
+    ds.tauntTimer2 = 2
+
+
 def secondary_paralysis(battle_state: BattleState) -> None:
     """Secondary paralysis on-hit effect."""
     target_id = battle_state.battler_target
@@ -221,6 +255,49 @@ def primary_confuse(battle_state: BattleState) -> None:
     r = _advance_rng(battle_state)
     turns = 2 + (r % 4)  # 2..5
     target.status2 = target.status2.remove_confusion() | Status2.confusion_turn(turns)
+
+
+def primary_swagger(battle_state: BattleState) -> None:
+    """Swagger: Confuse target and raise target's Attack by 2 stages.
+
+    Source: BattleScript_EffectSwagger
+    """
+    target_id = battle_state.battler_target
+    target = battle_state.battlers[target_id]
+    if target is None:
+        return
+    # Substitute blocks non-damaging effects
+    if target.status2.has_substitute():
+        return
+    # Confuse if possible
+    if target.ability != Ability.OWN_TEMPO:
+        r = _advance_rng(battle_state)
+        turns = 2 + (r % 4)
+        target.status2 = target.status2.remove_confusion() | Status2.confusion_turn(turns)
+    # Raise target's Attack by 2 stages (even if confusion didn't apply)
+    stat_changes.lower_stat_target  # to appease lints about unused import in module
+    stat_changes._change_stage(target, 1, +2)
+
+
+def primary_flatter(battle_state: BattleState) -> None:
+    """Flatter: Confuse target and raise target's Special Attack by 2 stages.
+
+    Source: BattleScript_EffectFlatter
+    """
+    target_id = battle_state.battler_target
+    target = battle_state.battlers[target_id]
+    if target is None:
+        return
+    # Substitute blocks non-damaging effects
+    if target.status2.has_substitute():
+        return
+    # Confuse if possible
+    if target.ability != Ability.OWN_TEMPO:
+        r = _advance_rng(battle_state)
+        turns = 2 + (r % 4)
+        target.status2 = target.status2.remove_confusion() | Status2.confusion_turn(turns)
+    # Raise target's Special Attack by 2 stages regardless
+    stat_changes._change_stage(target, 4, +2)
 
 
 def secondary_confuse(battle_state: BattleState) -> None:

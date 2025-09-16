@@ -184,6 +184,9 @@ class BattleState(BaseModel):
     # Battle outcome tracking
     battle_outcome: int = Field(ge=0, le=7, default=0)  # B_OUTCOME constants
 
+    # Headless message log (for deterministic tests and tracing)
+    messages: list[str] = Field(default_factory=list)
+
     # Turn and phase management
     turn_count: int = Field(ge=0, default=0)
     battle_phase: int = Field(ge=0, le=10, default=0)

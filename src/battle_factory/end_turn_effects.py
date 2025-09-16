@@ -407,7 +407,18 @@ class EndTurnEffectsProcessor:
                 effect_processed = True
 
             case EndTurnBattlerEffect.YAWN:
-                # ENDTURN_YAWN - Yawn timer decrements (placeholder)
+                # ENDTURN_YAWN - Yawn timer decrements and applies sleep when it expires
+                ds = self.battle_state.disable_structs[battler_id]
+                if ds.tauntTimer2 > 0:
+                    ds.tauntTimer2 -= 1
+                    if ds.tauntTimer2 == 0:
+                        # Attempt to apply sleep now, respecting current blockers
+                        from src.battle_factory.move_effects.status_effects import _apply_sleep
+
+                        # Skip if target already has major status
+                        if not battler.status1.has_major_status():
+                            # Uproar/Insomnia/Vital Spirit prevent sleep inside _apply_sleep
+                            _apply_sleep(self.battle_state, battler_id, turns=2)
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.ITEMS2
                 effect_processed = True
 

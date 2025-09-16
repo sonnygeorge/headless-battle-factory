@@ -1,15 +1,20 @@
 from src.battle_factory.enums import Ability, Move, MoveEffect, Type, Weather, Status2
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.data.moves import get_move_effect, get_move_data
-from src.battle_factory.move_effects import status_effects, field_effects
+from src.battle_factory.move_effects import (
+    status_effects,
+    field_effects,
+    removal_effects,
+    item_interactions,
+    stat_changes,
+    recoil_and_drain,
+    fixed_damage,
+    multi_hit,
+    ohko,
+    two_turn,
+    healing,
+)
 from src.battle_factory.move_effects.field_effects import SIDE_STATUS_MIST
-from src.battle_factory.move_effects import stat_changes
-from src.battle_factory.move_effects import recoil_and_drain
-from src.battle_factory.move_effects import fixed_damage
-from src.battle_factory.move_effects import multi_hit
-from src.battle_factory.move_effects import ohko
-from src.battle_factory.move_effects import two_turn
-from src.battle_factory.move_effects import healing
 from src.battle_factory.constants import WEATHER_DEFAULT_DURATION
 
 
@@ -186,6 +191,8 @@ def apply_primary(battle_state: BattleState) -> None:
         healing.primary_restore_half(battle_state)
     elif effect in (MoveEffect.REST,):
         healing.primary_rest(battle_state)
+    elif effect == MoveEffect.WILL_O_WISP:
+        status_effects.primary_will_o_wisp(battle_state)
     elif effect in (MoveEffect.MORNING_SUN, MoveEffect.SYNTHESIS, MoveEffect.MOONLIGHT):
         healing.primary_weather_heal(battle_state)
     elif effect == MoveEffect.LEECH_SEED:
@@ -206,6 +213,9 @@ def apply_primary(battle_state: BattleState) -> None:
         b = battle_state.battler_attacker
         battle_state.wish_future_knock.wishCounter[b] = 2  # heal after next turn passes
         battle_state.wish_future_knock.wishMonId[b] = b
+        return
+    elif effect == MoveEffect.YAWN:
+        status_effects.primary_yawn(battle_state)
         return
     elif effect == MoveEffect.DESTINY_BOND:
         # Set Destiny Bond volatile for this turn: on KO, the attacker faints too
@@ -244,6 +254,26 @@ def apply_primary(battle_state: BattleState) -> None:
         status_effects.primary_taunt(battle_state)
     elif effect == MoveEffect.TORMENT:
         status_effects.primary_torment(battle_state)
+    elif effect == MoveEffect.SWAGGER:
+        status_effects.primary_swagger(battle_state)
+    elif effect == MoveEffect.FLATTER:
+        status_effects.primary_flatter(battle_state)
+    elif effect == MoveEffect.MEAN_LOOK:
+        # Apply escape prevention to the target
+        tid = battle_state.battler_target
+        mon = battle_state.battlers[tid]
+        if mon is not None:
+            mon.status2 |= Status2.ESCAPE_PREVENTION
+        return
+    elif effect == MoveEffect.PSYCH_UP:
+        # Copy target's stat stages to the user
+        uid = battle_state.battler_attacker
+        tid = battle_state.battler_target
+        user = battle_state.battlers[uid]
+        target = battle_state.battlers[tid]
+        if user is not None and target is not None:
+            user.statStages = target.statStages.copy()
+        return
     elif effect == MoveEffect.DISABLE:
         status_effects.primary_disable(battle_state)
     elif effect == MoveEffect.ENCORE:
@@ -257,6 +287,13 @@ def apply_primary(battle_state: BattleState) -> None:
             # Copy moves
             for i in range(4):
                 battle_state.imprison_moves[attacker_id][i] = mon.moves[i] if i < len(mon.moves) else Move.NONE
+        return
+    elif effect == MoveEffect.BATON_PASS:
+        # Baton Pass: mark baton pass active; on switch, carry allowed volatiles/stat stages.
+        # We'll approximate by setting a flag on the user to indicate pass on next switch.
+        user = battle_state.battler_attacker
+        # Use SpecialStatus.traced as a generic free flag to indicate pending baton pass
+        battle_state.special_statuses[user].traced = True
         return
     elif effect == MoveEffect.RAIN_DANCE:
         battle_state.weather = Weather.RAIN
@@ -382,6 +419,16 @@ def apply_primary(battle_state: BattleState) -> None:
                 battle_state.script_damage = dmg
                 battle_state.battle_move_damage = dmg
         return
+    elif effect == MoveEffect.MAGIC_COAT:
+        # Magic Coat: set bounce flag for this turn; scripts that apply reflectable effects should check and bounce
+        user = battle_state.battler_attacker
+        battle_state.protect_structs[user].bounceMove = True
+        return
+    elif effect == MoveEffect.SNATCH:
+        # Snatch: set steal flag for this turn; self-targeting buffs should be stolen
+        user = battle_state.battler_attacker
+        battle_state.protect_structs[user].stealMove = True
+        return
     elif effect == MoveEffect.BIDE:
         # Bide: On first use, start a 2-turn timer; accumulate damage taken; then unleash 2x
         user = battle_state.battler_attacker
@@ -451,6 +498,16 @@ def apply_secondary(battle_state: BattleState) -> None:
         if atk is not None and (battle_state.move_result_flags & 1):  # MOVE_RESULT_MISSED bit 0
             # Use 1/2 of would-be damage as crash fallback; Gen 3 uses manipulatedamage DMG_RECOIL_FROM_MISS
             atk.hp = recoil_and_drain.apply_recoil(atk.hp, 1, 2, max(1, battle_state.script_damage))
+    elif effect == MoveEffect.RAPID_SPIN:
+        removal_effects.secondary_rapid_spin(battle_state)
+    elif effect == MoveEffect.BRICK_BREAK:
+        removal_effects.secondary_brick_break(battle_state)
+    elif effect == MoveEffect.KNOCK_OFF:
+        item_interactions.secondary_knock_off(battle_state)
+    elif effect == MoveEffect.THIEF:
+        item_interactions.secondary_thief_covet(battle_state)
+    elif effect == MoveEffect.TRICK:
+        item_interactions.secondary_trick(battle_state)
     # Add more secondary effects as implemented
 
 

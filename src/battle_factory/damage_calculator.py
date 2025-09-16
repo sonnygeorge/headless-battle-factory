@@ -132,8 +132,8 @@ class DamageCalculator:
             move_power = move_data.power
 
         # Apply dynamic power modifiers for specific multi-turn moves
-        # Rollout (and Ice Ball analog) ramp: doubles each successive turn; Defense Curl doubles further
-        if move == Move.ROLLOUT and self.battle_state is not None:
+        # Rollout/Ice Ball ramp: doubles each successive turn; Defense Curl doubles further
+        if move in (Move.ROLLOUT, Move.ICE_BALL) and self.battle_state is not None:
             ds = self.battle_state.disable_structs[attacker_id]
             turns_used = 0
             if ds.rolloutTimerStartValue and ds.rolloutTimerStartValue >= ds.rolloutTimer:
