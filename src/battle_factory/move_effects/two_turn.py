@@ -1,6 +1,6 @@
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
-from src.battle_factory.enums import Status2, Weather
+from src.battle_factory.enums import Status2, Weather, SemiInvulnState
 from src.battle_factory.damage_calculator import DamageCalculator
 from src.battle_factory.data.moves import get_move_type
 from src.battle_factory.type_effectiveness import TypeEffectiveness
@@ -27,17 +27,17 @@ def clear_charging(battle_state: BattleState) -> None:
     battle_state.protect_structs[attacker_id].chargingTurn = False
 
 
-def set_semi_invulnerable(battle_state: BattleState, flag: str, value: bool) -> None:
+def set_semi_invulnerable(battle_state: BattleState, state: SemiInvulnState, value: bool) -> None:
     """Set the appropriate semi-invulnerability status3 flag for Fly/Dig/Dive.
 
     Source: BattleScript_EffectSemiInvulnerable and associated checks.
     """
     idx = battle_state.battler_attacker
-    if flag == "air":
+    if state == SemiInvulnState.AIR:
         battle_state.status3_on_air[idx] = value
-    elif flag == "underground":
+    elif state == SemiInvulnState.UNDERGROUND:
         battle_state.status3_underground[idx] = value
-    elif flag == "underwater":
+    elif state == SemiInvulnState.UNDERWATER:
         battle_state.status3_underwater[idx] = value
 
 

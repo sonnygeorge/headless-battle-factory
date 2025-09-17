@@ -45,10 +45,10 @@ Variable power/type
 - [DONE] Assist/Metronome/Sketch/Role Play: meta-move behaviors
 
 Redirection/party/other
-- Follow Me: implement redirection via SideTimer.followme
-- Helping Hand: 1.5x partner’s damage this turn
-- Camouflage: change user’s type based on terrain (define mapping)
-- Memento: user faints; target’s Atk/SpA -2 stages
+- [DONE] Follow Me: implement redirection via SideTimer.followme
+- [DONE] Helping Hand: 1.5x partner’s damage this turn
+- [DONE] Camouflage: change user’s type based on terrain (define mapping)
+- [DONE] Memento: user faints; target’s Atk/SpA -2 stages
 - SmellingSalt: boosted vs paralyzed and cures paralysis on hit
 - Facade: boosted power while statused
 

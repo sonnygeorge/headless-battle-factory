@@ -509,6 +509,17 @@ class BattleScriptInterpreter:
         if attacker is None or defender is None or move_data is None:
             return True
 
+        # Follow Me redirection: if the target's side has an active redirector, retarget to that mon
+        # Source: pokeemerald/data/battle_scripts_1.s (setforcedtarget),
+        #         pokeemerald/src/battle_util.c (target selection with followmeTimer)
+        target_side = battle_state.battler_attacker % 2 ^ 1
+        if battle_state.follow_me_timer[target_side] > 0:
+            forced = battle_state.follow_me_target[target_side]
+            forced_mon = battle_state.battlers[forced]
+            if forced_mon is not None and forced_mon.hp > 0:
+                battle_state.battler_target = forced
+                defender = forced_mon
+
         # Always-hit effects: ALWAYS_HIT and Vital Throw
         effect = move_data.effect
         if effect == MoveEffect.ALWAYS_HIT or effect == MoveEffect.VITAL_THROW:
@@ -1807,6 +1818,33 @@ class BattleScriptLibrary:
                     BattleScriptCommand.ATTACKCANCELER,
                     BattleScriptCommand.PPREDUCE,
                     BattleScriptCommand.SETEFFECTPRIMARY,
+                    BattleScriptCommand.END,
+                ]
+            ),
+            # Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectFollowMe)
+            MoveEffect.FOLLOW_ME: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,  # set side redirection for one turn
+                    BattleScriptCommand.END,
+                ]
+            ),
+            # Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectHelpingHand)
+            MoveEffect.HELPING_HAND: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,  # mark partner's Helping Hand flag
+                    BattleScriptCommand.END,
+                ]
+            ),
+            # Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectCamouflage)
+            MoveEffect.CAMOUFLAGE: BattleScript(
+                [
+                    BattleScriptCommand.ATTACKCANCELER,
+                    BattleScriptCommand.PPREDUCE,
+                    BattleScriptCommand.SETEFFECTPRIMARY,  # set user's type to environment type
                     BattleScriptCommand.END,
                 ]
             ),

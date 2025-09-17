@@ -536,7 +536,10 @@ class DamageCalculator:
         if self.battle_state is not None:
             attacker_id = self.battle_state.battler_attacker
             if 0 <= attacker_id < 4 and self.battle_state.protect_structs[attacker_id].helpingHand:
+                # Source: pokeemerald/src/battle_script_commands.c (Cmd_damagecalc)
                 final_damage = (final_damage * 15) // 10
+                # Clear the flag so it only applies once
+                self.battle_state.protect_structs[attacker_id].helpingHand = False
 
         return final_damage
 

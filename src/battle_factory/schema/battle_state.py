@@ -244,6 +244,10 @@ class BattleState(BaseModel):
     # Spikes layers - [player_side, opponent_side]
     spikes_layers: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
 
+    # Follow Me redirection per side
+    follow_me_timer: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
+    follow_me_target: list[int] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
+
     # =================================================================
     # FIELD CONDITIONS
     # =================================================================

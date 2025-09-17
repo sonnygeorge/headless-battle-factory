@@ -1,8 +1,4 @@
-from __future__ import annotations
-
-from typing import List
-
-from src.battle_factory.enums import Move, Ability
+from src.battle_factory.enums import Move, Ability, Type
 from src.battle_factory.enums.move_effect import MoveEffect
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.data.moves import get_move_data
@@ -63,7 +59,7 @@ def select_metronome_move(battle_state: BattleState) -> Move:
         Move.NONE,
     }
 
-    candidates: List[Move] = []
+    candidates: list[Move] = []
     for move in Move:
         if move in forbidden_moves:
             continue
@@ -89,7 +85,7 @@ def select_nature_power_move(battle_state: BattleState) -> Move:
     - pokeemerald/src/battle_script_commands.c (sNaturePowerMoves[] table)
     - pokeemerald/data/battle_scripts_1.s (BattleScript_EffectNaturePower)
     """
-    env = getattr(battle_state, "battle_environment", BATTLE_ENVIRONMENT_PLAIN)
+    env = battle_state.battle_environment
     mapping = {
         BATTLE_ENVIRONMENT_GRASS: Move.STUN_SPORE,
         BATTLE_ENVIRONMENT_LONG_GRASS: Move.RAZOR_LEAF,
@@ -103,6 +99,29 @@ def select_nature_power_move(battle_state: BattleState) -> Move:
         BATTLE_ENVIRONMENT_PLAIN: Move.SWIFT,
     }
     return mapping.get(env, Move.SWIFT)
+
+
+def get_environment_type(battle_state: BattleState) -> Type:
+    """Return the type associated with the current battle environment.
+
+    Source:
+    - pokeemerald/src/battle_script_commands.c (sEnvironmentToType[])
+    - Used by Camouflage and messaging in the original scripts
+    """
+    env = battle_state.battle_environment
+    env_to_type = {
+        BATTLE_ENVIRONMENT_GRASS: Type.GRASS,
+        BATTLE_ENVIRONMENT_LONG_GRASS: Type.GRASS,
+        BATTLE_ENVIRONMENT_SAND: Type.GROUND,
+        BATTLE_ENVIRONMENT_UNDERWATER: Type.WATER,
+        BATTLE_ENVIRONMENT_WATER: Type.WATER,
+        BATTLE_ENVIRONMENT_POND: Type.WATER,
+        BATTLE_ENVIRONMENT_MOUNTAIN: Type.ROCK,
+        BATTLE_ENVIRONMENT_CAVE: Type.ROCK,
+        BATTLE_ENVIRONMENT_BUILDING: Type.NORMAL,
+        BATTLE_ENVIRONMENT_PLAIN: Type.NORMAL,
+    }
+    return env_to_type.get(env, Type.NORMAL)
 
 
 def select_assist_move(battle_state: BattleState, attacker_id: int) -> Move:
@@ -221,7 +240,7 @@ def apply_secret_power_secondary(battle_state: BattleState) -> None:
     - pokeemerald/src/battle_script_commands.c (Cmd_getsecretpowereffect switch table)
     - pokeemerald/data/battle_scripts_1.s (BattleScript_EffectSecretPower)
     """
-    env = getattr(battle_state, "battle_environment", BATTLE_ENVIRONMENT_PLAIN)
+    env = battle_state.battle_environment
     # Map to effect handlers
     if env == BATTLE_ENVIRONMENT_GRASS:
         status_effects.secondary_poison(battle_state)

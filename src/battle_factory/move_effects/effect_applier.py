@@ -1,4 +1,4 @@
-from src.battle_factory.enums import Ability, Move, MoveEffect, Type, Weather, Status2
+from src.battle_factory.enums import Ability, Move, MoveEffect, Type, Weather, Status2, SemiInvulnState
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.data.moves import get_move_effect, get_move_data
 from src.battle_factory.move_effects import (
@@ -13,10 +13,13 @@ from src.battle_factory.move_effects import (
     ohko,
     two_turn,
     healing,
+    meta_moves,
+    support_moves,
+    phazing,
+    reaction_moves,
 )
 from src.battle_factory.move_effects.field_effects import SIDE_STATUS_MIST
 from src.battle_factory.constants import WEATHER_DEFAULT_DURATION
-from src.battle_factory.move_effects import meta_moves
 
 
 def _lcg_advance(seed: int) -> int:
@@ -84,12 +87,10 @@ def apply_primary(battle_state: BattleState) -> None:
         # Prevent called move from reducing PP
         battle_state.hit_marker |= 1 << 2  # HITMARKER_NO_PPDEDUCT
         _execute_called_move(battle_state, chosen)
-        return
     elif effect == MoveEffect.NATURE_POWER:
         chosen = meta_moves.select_nature_power_move(battle_state)
         battle_state.hit_marker |= 1 << 2  # HITMARKER_NO_PPDEDUCT
         _execute_called_move(battle_state, chosen)
-        return
     elif effect == MoveEffect.ASSIST:
         chosen = meta_moves.select_assist_move(battle_state, battle_state.battler_attacker)
         if chosen == 0:
@@ -100,10 +101,8 @@ def apply_primary(battle_state: BattleState) -> None:
         return
     elif effect == MoveEffect.SKETCH:
         meta_moves.apply_sketch(battle_state)
-        return
     elif effect == MoveEffect.ROLE_PLAY:
         meta_moves.apply_role_play(battle_state)
-        return
     if effect == MoveEffect.SLEEP:
         status_effects.primary_sleep(battle_state)
     elif effect == MoveEffect.TOXIC:
@@ -138,21 +137,21 @@ def apply_primary(battle_state: BattleState) -> None:
             two_turn.start_charging(battle_state)
             # Set appropriate invulnerable flag based on move
             if battle_state.current_move == Move.FLY:
-                two_turn.set_semi_invulnerable(battle_state, "air", True)
+                two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.AIR, True)
             elif battle_state.current_move == Move.DIG:
-                two_turn.set_semi_invulnerable(battle_state, "underground", True)
+                two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.UNDERGROUND, True)
             elif battle_state.current_move == Move.DIVE:
-                two_turn.set_semi_invulnerable(battle_state, "underwater", True)
+                two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.UNDERWATER, True)
             # First turn ends here
             return
         else:
             # Second turn: clear charging and invulnerable state, then resolve damage
             if battle_state.current_move == Move.FLY:
-                two_turn.set_semi_invulnerable(battle_state, "air", False)
+                two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.AIR, False)
             elif battle_state.current_move == Move.DIG:
-                two_turn.set_semi_invulnerable(battle_state, "underground", False)
+                two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.UNDERGROUND, False)
             elif battle_state.current_move == Move.DIVE:
-                two_turn.set_semi_invulnerable(battle_state, "underwater", False)
+                two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.UNDERWATER, False)
             two_turn.clear_charging(battle_state)
             two_turn.resolve_two_turn_damage(battle_state)
             return
@@ -276,30 +275,25 @@ def apply_primary(battle_state: BattleState) -> None:
         battle_state.wish_future_knock.wishCounter[b] = 2  # heal after next turn passes
         battle_state.wish_future_knock.wishMonId[b] = b
         return
+    elif effect == MoveEffect.FOLLOW_ME:
+        support_moves.primary_follow_me(battle_state)
+    elif effect == MoveEffect.HELPING_HAND:
+        support_moves.primary_helping_hand(battle_state)
+    elif effect == MoveEffect.CAMOUFLAGE:
+        support_moves.primary_camouflage(battle_state)
     elif effect == MoveEffect.YAWN:
         status_effects.primary_yawn(battle_state)
-        return
     elif effect == MoveEffect.DESTINY_BOND:
         # Set Destiny Bond volatile for this turn: on KO, the attacker faints too
         user = battle_state.battler_attacker
         battle_state.battlers[user].status2 |= Status2.DESTINY_BOND
-        return
     elif effect == MoveEffect.GRUDGE:
         # If user faints this turn from a move, the attacker's move loses all PP
         battle_state.grudge_active[battle_state.battler_attacker] = True
-        return
     elif effect == MoveEffect.PERISH_SONG:
-        # Set Perish Song counters (3 turns) on all active battlers that can hear
-        for i, mon in enumerate(battle_state.battlers):
-            if mon is None:
-                continue
-            # Soundproof prevents Perish Song
-            if mon.ability == Ability.SOUNDPROOF:
-                continue
-            ds = battle_state.disable_structs[i]
-            ds.perishSongTimer = 3
-            ds.perishSongTimerStartValue = 3
-        return
+        support_moves.primary_perish_song(battle_state)
+    elif effect == MoveEffect.MEMENTO:
+        support_moves.primary_memento(battle_state)
     elif effect == MoveEffect.FUTURE_SIGHT:
         # Schedule delayed attack on target position after 2 turns
         tid = battle_state.battler_target
@@ -374,147 +368,17 @@ def apply_primary(battle_state: BattleState) -> None:
         battle_state.weather_timer = WEATHER_DEFAULT_DURATION
         return
     elif effect == MoveEffect.ROAR:
-        # Phazing (Roar/Whirlwind share EFFECT_ROAR): force switch if allowed
-        target_id = battle_state.battler_target
-        attacker_id = battle_state.battler_attacker
-        target = battle_state.battlers[target_id]
-        if target is None:
-            return
-        # Ability checks
-        # Suction Cups prevents both Roar and Whirlwind
-        if target.ability == Ability.SUCTION_CUPS:
-            battle_state.move_result_flags |= 1
-            return
-        # Soundproof blocks Roar specifically
-        if battle_state.current_move == Move.ROAR and target.ability == Ability.SOUNDPROOF:
-            battle_state.move_result_flags |= 1
-            return
-        # Rooted (Ingrain) prevents - approximate with cannot_escape flag
-        if target.status2.cannot_escape():
-            battle_state.move_result_flags |= 1
-            return
-
-        # Build candidate replacement list from target's party
-        side_is_player = target_id % 2 == 0
-        party = battle_state.player_party if side_is_player else battle_state.opponent_party
-        # Exclude active party indices for this side (both positions in doubles)
-        active_main = battle_state.active_party_index[0 if side_is_player else 1]
-        active_partner = battle_state.active_party_index[2 if side_is_player else 3]
-        exclude = {idx for idx in (active_main, active_partner) if idx is not None and idx >= 0}
-
-        candidates: list[int] = []
-        for slot, mon in enumerate(party):
-            if mon is None:
-                continue
-            if mon.hp <= 0:
-                continue
-            if slot in exclude:
-                continue
-            candidates.append(slot)
-
-        if not candidates:
-            # No available replacements -> move fails
-            battle_state.move_result_flags |= 1
-            return
-
-        # Choose random candidate
-        idx = _choose_random_index(battle_state, len(candidates))
-        chosen_slot = candidates[idx]
-        new_mon = party[chosen_slot]
-        if new_mon is None:
-            battle_state.move_result_flags |= 1
-            return
-
-        # Perform the switch into target battler slot
-        # Clear effects that end when target leaves: Imprison from that battler
-        battle_state.imprison_active[target_id] = False
-        battle_state.battlers[target_id] = new_mon
-        battle_state.active_party_index[target_id] = chosen_slot
-
-        # Clear temporary statuses on switch-in
-        from src.battle_factory.schema.battle_state import DisableStruct, ProtectStruct, SpecialStatus
-
-        battle_state.protect_structs[target_id] = ProtectStruct()
-        battle_state.disable_structs[target_id] = DisableStruct()
-        battle_state.special_statuses[target_id] = SpecialStatus()
-
-        # Apply switch-in hazards (Spikes) from the attacker's side onto the target's side
-        # Spikes do not affect Flying-types or Levitate holders (grounded check)
-        grounded = not (Type.FLYING in new_mon.types or new_mon.ability == Ability.LEVITATE)
-        if grounded:
-            opponent_side = attacker_id % 2
-            layers = battle_state.spikes_layers[opponent_side]
-            if layers > 0:
-                if layers == 1:
-                    dmg = max(1, new_mon.maxHP // 8)
-                elif layers == 2:
-                    dmg = max(1, new_mon.maxHP // 6)
-                else:
-                    dmg = max(1, new_mon.maxHP // 4)
-                new_mon.hp = max(0, new_mon.hp - dmg)
-                battle_state.script_damage = dmg
-                battle_state.battle_move_damage = dmg
-        return
+        phazing.primary_phaze(battle_state)
     elif effect == MoveEffect.COUNTER:
-        # Reflect last physical damage dealt to this user
-        attacker_id = battle_state.battler_attacker
-        ps = battle_state.protect_structs[attacker_id]
-        if ps.physicalDmg > 0:
-            target_id = ps.physicalBattlerId
-            target = battle_state.battlers[target_id]
-            if target is not None:
-                dmg = ps.physicalDmg * 2
-                target.hp = max(0, target.hp - dmg)
-                battle_state.script_damage = dmg
-                battle_state.battle_move_damage = dmg
-        return
+        reaction_moves.primary_counter(battle_state)
     elif effect == MoveEffect.MIRROR_COAT:
-        # Reflect last special damage dealt to this user
-        attacker_id = battle_state.battler_attacker
-        ps = battle_state.protect_structs[attacker_id]
-        if ps.specialDmg > 0:
-            target_id = ps.specialBattlerId
-            target = battle_state.battlers[target_id]
-            if target is not None:
-                dmg = ps.specialDmg * 2
-                target.hp = max(0, target.hp - dmg)
-                battle_state.script_damage = dmg
-                battle_state.battle_move_damage = dmg
-        return
+        reaction_moves.primary_mirror_coat(battle_state)
     elif effect == MoveEffect.MAGIC_COAT:
-        # Magic Coat: set bounce flag for this turn; scripts that apply reflectable effects should check and bounce
-        user = battle_state.battler_attacker
-        battle_state.protect_structs[user].bounceMove = True
-        return
+        reaction_moves.primary_magic_coat(battle_state)
     elif effect == MoveEffect.SNATCH:
-        # Snatch: set steal flag for this turn; self-targeting buffs should be stolen
-        user = battle_state.battler_attacker
-        battle_state.protect_structs[user].stealMove = True
-        return
+        reaction_moves.primary_snatch(battle_state)
     elif effect == MoveEffect.BIDE:
-        # Bide: On first use, start a 2-turn timer; accumulate damage taken; then unleash 2x
-        user = battle_state.battler_attacker
-        ds = battle_state.disable_structs[user]
-        if ds.bideTimer == 0:
-            battle_state.bide_damage[user] = 0
-            battle_state.bide_target[user] = 0
-            # 2 turns remaining
-            ds.bideTimer = 2
-            ds.bideTimerStartValue = 2
-            return
-        else:
-            # Unleash only when timer has expired (handled in end-turn decrement)
-            if ds.bideTimer == 0:
-                dmg = max(1, battle_state.bide_damage[user] * 2)
-                target = battle_state.battlers[battle_state.bide_target[user]]
-                if target is not None:
-                    target.hp = max(0, target.hp - dmg)
-                    battle_state.script_damage = dmg
-                    battle_state.battle_move_damage = dmg
-                # Reset
-                battle_state.bide_damage[user] = 0
-                battle_state.bide_target[user] = 0
-                return
+        reaction_moves.primary_bide(battle_state)
     # New primary effects wiring
     elif effect == MoveEffect.FORESIGHT:
         status_effects.primary_foresight(battle_state)

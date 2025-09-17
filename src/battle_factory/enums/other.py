@@ -1,4 +1,12 @@
-from enum import IntEnum, IntFlag
+from enum import IntEnum, IntFlag, StrEnum
+
+
+class SemiInvulnState(StrEnum):
+    """Semi-invulnerability states for Fly/Dig/Dive"""
+
+    AIR = "air"
+    UNDERGROUND = "underground"
+    UNDERWATER = "underwater"
 
 
 class Weather(IntEnum):

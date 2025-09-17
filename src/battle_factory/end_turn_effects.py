@@ -197,6 +197,12 @@ class EndTurnEffectsProcessor:
 
             case EndTurnFieldEffect.FIELD_COUNT:
                 # ENDTURN_FIELD_COUNT - Done with field effects
+                # Decrement Follow Me timers on both sides at end of field effects
+                for side in range(2):
+                    if self.battle_state.follow_me_timer[side] > 0:
+                        self.battle_state.follow_me_timer[side] -= 1
+                        if self.battle_state.follow_me_timer[side] == 0:
+                            self.battle_state.follow_me_target[side] = 0
                 effect_processed = False
 
         return effect_processed
