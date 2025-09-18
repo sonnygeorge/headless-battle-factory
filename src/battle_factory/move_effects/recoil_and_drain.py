@@ -1,5 +1,5 @@
 from src.battle_factory.schema.battle_state import BattleState
-from src.battle_factory.enums import Ability
+from src.battle_factory.enums import Ability, Move
 
 
 def apply_drain_heal(battle_state: BattleState, fraction_num: int, fraction_den: int) -> None:
@@ -48,3 +48,17 @@ def apply_recoil(attacker_hp: int, recoil_num: int, recoil_den: int, damage_deal
     if recoil < 1 and damage_dealt > 0:
         recoil = 1
     return max(0, attacker_hp - recoil)
+
+
+def apply_recoil_for_move(attacker_hp: int, move: Move, damage_dealt: int) -> int:
+    """Apply exact recoil ratios per move for Gen 3.
+
+    - Take Down, Submission: 1/4 recoil
+    - Double-Edge, Volt Tackle, Struggle: 1/3 recoil
+    """
+    if move in (Move.TAKE_DOWN, Move.SUBMISSION):
+        return apply_recoil(attacker_hp, 1, 4, damage_dealt)
+    if move in (Move.DOUBLE_EDGE, Move.VOLT_TACKLE, Move.STRUGGLE):
+        return apply_recoil(attacker_hp, 1, 3, damage_dealt)
+    # Fallback to 1/3 for unspecified RECOIL family members
+    return apply_recoil(attacker_hp, 1, 3, damage_dealt)

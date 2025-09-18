@@ -163,6 +163,14 @@ def secondary_burn(battle_state: BattleState) -> None:
     _apply_burn(battle_state, target_id)
 
 
+def secondary_badly_poison(battle_state: BattleState) -> None:
+    """Secondary badly poison (Toxic) effect (e.g., Poison Fang)."""
+    target_id = battle_state.battler_target
+    if not _can_apply_major_status(battle_state, target_id):
+        return
+    _apply_poison(battle_state, target_id, toxic=True)
+
+
 def primary_will_o_wisp(battle_state: BattleState) -> None:
     """Primary burn status infliction (Will-O-Wisp).
 
@@ -172,6 +180,15 @@ def primary_will_o_wisp(battle_state: BattleState) -> None:
     if not _can_apply_major_status(battle_state, target_id):
         return
     _apply_burn(battle_state, target_id)
+
+
+def secondary_overheat_user_drop(battle_state: BattleState) -> None:
+    """Overheat: lower user's Sp. Atk by 2 after hit."""
+    user = battle_state.battler_attacker
+    mon = battle_state.battlers[user]
+    if mon is None:
+        return
+    stat_changes.change_stage(mon, 4, -2)
 
 
 def primary_yawn(battle_state: BattleState) -> None:
@@ -227,6 +244,35 @@ def secondary_flinch(battle_state: BattleState) -> None:
     target.status2 |= Status2.FLINCHED
 
 
+def secondary_paralysis_bounce(battle_state: BattleState) -> None:
+    """Bounce secondary: 30% paralysis on second turn connects."""
+    target_id = battle_state.battler_target
+    if not _can_apply_major_status(battle_state, target_id):
+        return
+    _apply_paralysis(battle_state, target_id)
+
+
+def secondary_flinch_sky_attack(battle_state: BattleState) -> None:
+    """Sky Attack secondary: flinch chance on hit (Gen 3)."""
+    # Use existing flinch handler
+    secondary_flinch(battle_state)
+
+
+def secondary_flinch_minimize_family(battle_state: BattleState) -> None:
+    """Apply flinch for FLINCH_MINIMIZE_HIT family (Astonish, Extrasensory, Needle Arm)."""
+    secondary_flinch(battle_state)
+
+
+def secondary_smellingsalt(battle_state: BattleState) -> None:
+    """SmellingSalt post-hit effect: cure target's paralysis if present (Gen 3)."""
+    target_id = battle_state.battler_target
+    target = battle_state.battlers[target_id]
+    if target is None:
+        return
+    if target.status1.is_paralyzed():
+        target.status1 = target.status1.remove_paralysis()
+
+
 # =====================
 # Volatile status setters
 # =====================
@@ -277,7 +323,7 @@ def primary_swagger(battle_state: BattleState) -> None:
         target.status2 = target.status2.remove_confusion() | Status2.confusion_turn(turns)
     # Raise target's Attack by 2 stages (even if confusion didn't apply)
     stat_changes.lower_stat_target  # to appease lints about unused import in module
-    stat_changes._change_stage(target, 1, +2)
+    stat_changes.change_stage(target, 1, +2)
 
 
 def primary_flatter(battle_state: BattleState) -> None:
@@ -298,7 +344,7 @@ def primary_flatter(battle_state: BattleState) -> None:
         turns = 2 + (r % 4)
         target.status2 = target.status2.remove_confusion() | Status2.confusion_turn(turns)
     # Raise target's Special Attack by 2 stages regardless
-    stat_changes._change_stage(target, 4, +2)
+    stat_changes.change_stage(target, 4, +2)
 
 
 def secondary_confuse(battle_state: BattleState) -> None:
@@ -422,6 +468,52 @@ def primary_defense_curl(battle_state: BattleState) -> None:
     mon.status2 |= Status2.DEFENSE_CURL
 
 
+def primary_minimize(battle_state: BattleState) -> None:
+    """Minimize: raise Evasion by 1 and set minimized flag (STATUS3_MINIMIZED).
+
+    Source: pokeemerald/data/battle_scripts_1.s (BattleScript_EffectMinimize)
+    """
+    user = battle_state.battler_attacker
+    mon = battle_state.battlers[user]
+    if mon is None:
+        return
+    # Set minimized state
+    battle_state.status3_minimized[user] = True
+    # Raise evasion one stage
+    stat_changes.raise_stat_user(battle_state, stat_changes.STAT_EVASION, 1)
+
+
+def primary_stockpile(battle_state: BattleState) -> None:
+    """Stockpile: raise user's Def/SpDef 1 stage and increment stockpile counter (max 3)."""
+    uid = battle_state.battler_attacker
+    ds = battle_state.disable_structs[uid]
+    if ds.stockpileCounter < 3:
+        ds.stockpileCounter += 1
+        ds.stockpileCounter = min(3, ds.stockpileCounter)
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_DEF, 1)
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_SPDEF, 1)
+
+
+def primary_swallow(battle_state: BattleState) -> None:
+    """Swallow: heal based on stockpile and reset counter (1/4, 1/2, full)."""
+    uid = battle_state.battler_attacker
+    mon = battle_state.battlers[uid]
+    if mon is None:
+        return
+    cnt = max(0, min(3, battle_state.disable_structs[uid].stockpileCounter))
+    if cnt == 0:
+        return
+    if cnt == 1:
+        heal = max(1, mon.maxHP // 4)
+    elif cnt == 2:
+        heal = max(1, mon.maxHP // 2)
+    else:
+        heal = mon.maxHP
+    mon.hp = min(mon.maxHP, mon.hp + heal)
+    # Reset stockpile
+    battle_state.disable_structs[uid].stockpileCounter = 0
+
+
 def primary_charge(battle_state: BattleState) -> None:
     user = battle_state.battler_attacker
     ds = battle_state.disable_structs[user]
@@ -439,6 +531,7 @@ def primary_uproar(battle_state: BattleState) -> None:
     r = _advance_rng(battle_state)
     turns = 2 + (r % 4)
     mon.status2 = mon.status2.set_uproar_turns(turns)
+    # Lock-On timers decrement at end-turn; nothing to do here
 
 
 def primary_rampage(battle_state: BattleState) -> None:
@@ -489,6 +582,95 @@ def primary_partial_trap(battle_state: BattleState) -> None:
     target.status2 |= Status2.ESCAPE_PREVENTION
 
 
+def primary_ingrain(battle_state: BattleState) -> None:
+    """Ingrain: root the user; heal at end of turn; block switching.
+
+    Approximation: set rooted flag; end-turn processor can heal based on flag; prevent escape.
+    """
+    uid = battle_state.battler_attacker
+    mon = battle_state.battlers[uid]
+    if mon is None:
+        return
+    battle_state.status3_rooted[uid] = True
+    mon.status2 |= Status2.ESCAPE_PREVENTION
+
+
+def primary_focus_energy(battle_state: BattleState) -> None:
+    """Focus Energy: set high-crit flag (Status2.FOCUS_ENERGY)."""
+    uid = battle_state.battler_attacker
+    mon = battle_state.battlers[uid]
+    if mon is None:
+        return
+    mon.status2 |= Status2.FOCUS_ENERGY
+
+
+def primary_rage(battle_state: BattleState) -> None:
+    """Rage: set rage volatile (Status2.RAGE). Attack is raised when hit (handled elsewhere)."""
+    uid = battle_state.battler_attacker
+    mon = battle_state.battlers[uid]
+    if mon is None:
+        return
+    mon.status2 |= Status2.RAGE
+
+
+def primary_spite(battle_state: BattleState) -> None:
+    """Spite: reduce PP of target's last used move by 2-5 (Gen 3).
+
+    Uses battle RNG to roll 2..5 uniformly.
+    """
+    tid = battle_state.battler_target
+    target = battle_state.battlers[tid]
+    if target is None:
+        return
+    last = battle_state.last_moves[tid]
+    if last == 0:
+        return
+    # Find slot
+    if last in target.moves:
+        pos = target.moves.index(last)
+        # Roll 2-5 using the LCG
+        from src.battle_factory.move_effects.status_effects import _advance_rng
+
+        _advance_rng(battle_state)
+        r16 = (battle_state.rng_seed >> 16) & 0xFFFF
+        reduction = 2 + (r16 % 4)
+        target.pp[pos] = max(0, target.pp[pos] - reduction)
+
+
+def primary_pay_day(battle_state: BattleState) -> None:
+    """Pay Day: add coins (amount based on user level; use level*2 per Gen 3)."""
+    uid = battle_state.battler_attacker
+    mon = battle_state.battlers[uid]
+    if mon is None:
+        return
+    battle_state.pay_day_coins += mon.level * 2
+
+
+def primary_nightmare(battle_state: BattleState) -> None:
+    """Nightmare: apply nightmare volatile on sleeping target."""
+    tid = battle_state.battler_target
+    target = battle_state.battlers[tid]
+    if target is None:
+        return
+    if target.status1.is_asleep():
+        target.status2 |= Status2.NIGHTMARE
+
+
+def primary_ghost_curse(battle_state: BattleState) -> None:
+    """Ghost-type Curse: user cuts own HP by 1/2; target becomes cursed (residual)."""
+    uid = battle_state.battler_attacker
+    tid = battle_state.battler_target
+    user = battle_state.battlers[uid]
+    target = battle_state.battlers[tid]
+    if user is None or target is None:
+        return
+    # Cut user's HP by half (min 1)
+    lose = max(1, user.maxHP // 2)
+    user.hp = max(1, user.hp - lose)
+    # Apply cursed volatile to target
+    target.status2 |= Status2.CURSED
+
+
 def primary_foresight(battle_state: BattleState) -> None:
     """Apply Foresight/Odor Sleuth: negate Ghost immunity and evasion boosts against the user.
 
@@ -502,6 +684,18 @@ def primary_foresight(battle_state: BattleState) -> None:
     target.status2 |= Status2.FORESIGHT
 
 
+def primary_lock_on(battle_state: BattleState) -> None:
+    """Lock-On / Mind Reader: ensure user's next move always hits the target.
+
+    Sets target's DisableStruct.battlerWithSureHit to attacker and a 2-turn timer.
+    """
+    attacker_id = battle_state.battler_attacker
+    target_id = battle_state.battler_target
+    ds = battle_state.disable_structs[target_id]
+    ds.battlerWithSureHit = attacker_id
+    ds.lockOnTimer = 2
+
+
 def primary_refresh(battle_state: BattleState) -> None:
     """Refresh: cures user's paralysis, poison, and burn."""
     user_id = battle_state.battler_attacker
@@ -513,6 +707,18 @@ def primary_refresh(battle_state: BattleState) -> None:
     s = s.remove_burn()
     s = s.remove_paralysis()
     mon.status1 = s
+
+
+def primary_mud_sport(battle_state: BattleState) -> None:
+    """Mud Sport: reduce Electric-type damage while the user is active (approx)."""
+    user = battle_state.battler_attacker
+    battle_state.status3_mudsport[user] = True
+
+
+def primary_water_sport(battle_state: BattleState) -> None:
+    """Water Sport: reduce Fire-type damage while the user is active (approx)."""
+    user = battle_state.battler_attacker
+    battle_state.status3_watersport[user] = True
 
 
 def primary_heal_bell(battle_state: BattleState) -> None:

@@ -3,6 +3,7 @@ from src.battle_factory.enums.move_effect import MoveEffect
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.data.moves import get_move_data
 from src.battle_factory.move_effects import stat_changes, status_effects
+from src.battle_factory.data.species import get_base_stats
 
 
 # Battle environments (mirrors pokeemerald BATTLE_ENVIRONMENT_* order)
@@ -203,6 +204,25 @@ def apply_role_play(battle_state: BattleState) -> None:
     atk.ability = tgt.ability
 
 
+def apply_skill_swap(battle_state: BattleState) -> None:
+    """Skill Swap: swap abilities between user and target, with simple restrictions.
+
+    Mirrors BattleScript_EffectSkillSwap flow; we disallow swapping WONDER_GUARD to be safe.
+    """
+    attacker_id = battle_state.battler_attacker
+    target_id = battle_state.battler_target
+    atk = battle_state.battlers[attacker_id]
+    tgt = battle_state.battlers[target_id]
+    if atk is None or tgt is None:
+        return
+    # Disallow swapping if either has NONE or WONDER_GUARD (conservative)
+    if atk.ability in (Ability.NONE, Ability.WONDER_GUARD):
+        return
+    if tgt.ability in (Ability.NONE, Ability.WONDER_GUARD):
+        return
+    atk.ability, tgt.ability = tgt.ability, atk.ability
+
+
 def apply_sketch(battle_state: BattleState) -> None:
     """Sketch: permanently replace user's current move slot with target's last used move.
 
@@ -261,3 +281,52 @@ def apply_secret_power_secondary(battle_state: BattleState) -> None:
     else:
         # Default: Paralysis (BUILDING/PLAIN/unknown)
         status_effects.secondary_paralysis(battle_state)
+
+
+def perform_beat_up(battle_state: BattleState) -> None:
+    """Beat Up: each healthy, status-free party member contributes one hit.
+
+    Source formula (Cmd_trydobeatup):
+        dmg = (((species_base_atk * move_power * (level*2/5 + 2)) / target_species_base_def) / 50) + 2
+        Then Helping Hand boost applies per hit.
+    """
+    attacker_id = battle_state.battler_attacker
+    target_id = battle_state.battler_target
+
+    is_player = (attacker_id % 2) == 0
+    party = battle_state.player_party if is_player else battle_state.opponent_party
+
+    total = 0
+    md = get_move_data(battle_state.current_move)
+    move_power = md.power if md else 10
+
+    for mon in party:
+        if mon is None or mon.hp <= 0:
+            continue
+        if mon.status1.has_major_status():
+            continue
+        target = battle_state.battlers[target_id]
+        if target is None or target.hp <= 0:
+            break
+        # Use species base Attack and target species base Defense
+        _, base_atk, _base_def_u, _spd, _spa, _spd2 = get_base_stats(mon.species)
+        _hp_t, _atk_t, base_def_t, _spd_t, _spa_t, _spdef_t = get_base_stats(target.species)
+        contrib_attack = max(1, base_atk)
+        target_def = max(1, base_def_t)
+        lvl_term = (mon.level * 2) // 5 + 2
+        dmg = ((lvl_term * move_power * contrib_attack) // target_def) // 50 + 2
+        if battle_state.protect_structs[attacker_id].helpingHand:
+            dmg = (dmg * 15) // 10
+        if dmg < 1:
+            dmg = 1
+        dmg = min(dmg, target.hp)
+        target.hp -= dmg
+        total += dmg
+        battle_state.script_damage = dmg
+        battle_state.battle_move_damage = total
+        if target.hp <= 0:
+            break
+
+
+def apply_beat_up(battle_state: BattleState) -> None:
+    perform_beat_up(battle_state)

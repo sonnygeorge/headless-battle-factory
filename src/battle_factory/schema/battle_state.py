@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 
 from src.battle_factory.enums import Move, Weather
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
+from src.battle_factory.enums.ability import Ability
 
 
 class DisableStruct(BaseModel):
@@ -39,7 +40,8 @@ class DisableStruct(BaseModel):
 
     # Battler targeting
     battlerPreventingEscape: int = Field(ge=0, le=255, default=0)  # u8
-    battlerWithSureHit: int = Field(ge=0, le=255, default=0)  # u8
+    battlerWithSureHit: int = Field(ge=0, le=255, default=255)  # u8 (255 = none)
+    lockOnTimer: int = Field(ge=0, le=15, default=0)  # u8: timer for Lock-On/Mind Reader
 
     # Battle state flags
     isFirstTurn: int = Field(ge=0, le=255, default=2)  # u8
@@ -315,6 +317,12 @@ class BattleState(BaseModel):
     status3_on_air: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
     status3_underground: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
     status3_underwater: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+    # Minimize volatile (STATUS3_MINIMIZED)
+    status3_minimized: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+    # Field sport effects and rooting (per-battler status3 in original)
+    status3_mudsport: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+    status3_watersport: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+    status3_rooted: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
 
     # Damage multiplier hook for special cases (e.g., EQ vs Dig)
     damage_multiplier: int = Field(ge=1, le=8, default=1)
@@ -336,6 +344,11 @@ class BattleState(BaseModel):
     # Delayed effects container (Wish, Future Sight/Doom Desire, Knock Off bitmasks)
     wish_future_knock: WishFutureKnock = Field(default_factory=WishFutureKnock)
 
+    # Pay Day coin tracker. Note: Battle Factory has no post-battle money payouts;
+    # this counter exists only for mechanical parity when Pay Day is used and is not consumed
+    # elsewhere in this project.
+    pay_day_coins: int = Field(ge=0, default=0)
+
     def are_weather_effects_nullified(self) -> bool:
         """
         Check if weather effects are nullified by Cloud Nine or Air Lock abilities
@@ -346,8 +359,6 @@ class BattleState(BaseModel):
         Returns:
             True if weather effects are nullified, False if weather can have effects
         """
-        from src.battle_factory.enums.ability import Ability
-
         # Check if any active battler has Cloud Nine or Air Lock
         for battler in self.battlers:
             if battler and battler.ability in (Ability.CLOUD_NINE, Ability.AIR_LOCK):

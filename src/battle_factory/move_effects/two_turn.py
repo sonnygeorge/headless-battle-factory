@@ -146,6 +146,9 @@ def can_hit_through_invulnerability(battle_state: BattleState) -> tuple[bool, in
     if battle_state.status3_on_air[tid]:
         if move in (Move.GUST, Move.TWISTER):
             return True, 2
+        if move == Move.SKY_UPPERCUT:
+            # Sky Uppercut hits targets in the air (no bonus damage)
+            return True, 1
         # Thunder hits while raining
         if move == Move.THUNDER and battle_state.weather == Weather.RAIN:
             return True, 1

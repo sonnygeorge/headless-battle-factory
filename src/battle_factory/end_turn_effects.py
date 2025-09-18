@@ -303,12 +303,18 @@ class EndTurnEffectsProcessor:
                 effect_processed = True
 
             case EndTurnBattlerEffect.NIGHTMARES:
-                # ENDTURN_NIGHTMARES - Nightmare damage (placeholder)
+                # ENDTURN_NIGHTMARES - Nightmare damage
+                if battler.status2.has_nightmare() and battler.status1.is_asleep() and battler.hp > 0:
+                    dmg = max(1, battler.maxHP // 4)
+                    self._apply_status_damage(battler_id, battler, dmg, "nightmare")
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.CURSE
                 effect_processed = True
 
             case EndTurnBattlerEffect.CURSE:
-                # ENDTURN_CURSE - Curse damage (placeholder)
+                # ENDTURN_CURSE - Ghost Curse damage
+                if battler.status2.is_cursed() and battler.hp > 0:
+                    dmg = max(1, battler.maxHP // 4)
+                    self._apply_status_damage(battler_id, battler, dmg, "curse")
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.WRAP
                 effect_processed = True
 
@@ -391,7 +397,12 @@ class EndTurnEffectsProcessor:
                 effect_processed = True
 
             case EndTurnBattlerEffect.LOCK_ON:
-                # ENDTURN_LOCK_ON - Lock-On timer decrements (placeholder)
+                # ENDTURN_LOCK_ON - Lock-On timer decrements
+                ds = self.battle_state.disable_structs[battler_id]
+                if ds.lockOnTimer > 0:
+                    ds.lockOnTimer -= 1
+                    if ds.lockOnTimer == 0:
+                        ds.battlerWithSureHit = 255
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.CHARGE
                 effect_processed = True
 
@@ -431,6 +442,10 @@ class EndTurnEffectsProcessor:
             case EndTurnBattlerEffect.ITEMS2:
                 # ENDTURN_ITEMS2 - Second round of item effects (placeholder)
                 # Bide: if bideTimer reached 0 this turn, unleash on user's action, not end-turn. Here we just ensure timer reaches 0.
+                # Ingrain healing
+                if self.battle_state.status3_rooted[battler_id] and battler.hp > 0:
+                    heal = max(1, battler.maxHP // 16)
+                    battler.hp = min(battler.maxHP, battler.hp + heal)
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.BATTLER_COUNT
                 effect_processed = True
 

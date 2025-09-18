@@ -51,7 +51,7 @@ def _can_lower_stat(battle_state: BattleState, target_id: int, stat_index: int) 
     return True
 
 
-def _change_stage(mon: BattlePokemon, stat_index: int, delta: int) -> None:
+def change_stage(mon: BattlePokemon, stat_index: int, delta: int) -> None:
     """Apply a bounded stage change to a battler's stat.
 
     Stages are clamped within MIN_STAT_STAGE .. MAX_STAT_STAGE.
@@ -70,7 +70,7 @@ def raise_stat_user(battle_state: BattleState, stat_index: int, stages: int = 1)
     user = battle_state.battlers[user_id]
     if user is None:
         return
-    _change_stage(user, stat_index, stages)
+    change_stage(user, stat_index, stages)
 
 
 def lower_stat_target(battle_state: BattleState, stat_index: int, stages: int = 1) -> None:
@@ -84,4 +84,4 @@ def lower_stat_target(battle_state: BattleState, stat_index: int, stages: int = 
         return
     if not _can_lower_stat(battle_state, target_id, stat_index):
         return
-    _change_stage(target, stat_index, -stages)
+    change_stage(target, stat_index, -stages)

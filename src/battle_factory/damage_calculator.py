@@ -18,6 +18,7 @@ from src.battle_factory.schema.battle_pokemon import BattlePokemon
 from src.battle_factory.schema.battle_move import BattleMove
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.enums import Move, Type, Ability, Item, Status1, Species
+from src.battle_factory.enums.move_effect import MoveEffect
 from src.battle_factory.enums.hold_effect import HoldEffect
 from src.battle_factory.type_effectiveness import TypeEffectiveness
 from src.battle_factory.data.moves import BATTLE_MOVES, get_move_data, get_move_type
@@ -248,6 +249,17 @@ class DamageCalculator:
             if 0 <= atk_id < 4 and self.battle_state.protect_structs[atk_id].notFirstStrike:
                 move_power *= 2
 
+        # Facade: double power if user is poisoned, burned, or paralyzed (Gen 3)
+        if move == Move.FACADE:
+            if attacker.status1 & (Status1.PSN_ANY | Status1.BURN | Status1.PARALYSIS):
+                move_power *= 2
+
+        # SmellingSalt: double power if target is paralyzed (Gen 3)
+        if move == Move.SMELLING_SALT and self.battle_state is not None:
+            defender_mon = self.battle_state.battlers[defender_id]
+            if defender_mon is not None and defender_mon.status1.is_paralyzed():
+                move_power *= 2
+
         # Apply dynamic power modifiers for specific multi-turn moves
         # Rollout/Ice Ball ramp: doubles each successive turn; Defense Curl doubles further
         if move in (Move.ROLLOUT, Move.ICE_BALL) and self.battle_state is not None:
@@ -274,6 +286,19 @@ class DamageCalculator:
             move_type = get_move_type(move)
         if dynamic_type is not None:
             move_type = dynamic_type
+
+        # Spit Up: dynamic base power based on Stockpile count (100/200/300)
+        if move == Move.SPIT_UP and self.battle_state is not None:
+            count = max(0, min(3, self.battle_state.disable_structs[attacker_id].stockpileCounter))
+            if count > 0:
+                move_power = 100 * count
+
+        # Minimize interaction: certain moves deal double damage if target is minimized
+        if self.battle_state is not None:
+            target_minimized = self.battle_state.status3_minimized[defender_id]
+            if target_minimized and move in (Move.STOMP, Move.ASTONISH, Move.EXTRASENSORY, Move.NEEDLE_ARM):
+                # Apply damage multiplier 2x at final stage by doubling move power now
+                move_power *= 2
 
         # Get base stats (lines 3129-3132)
         attack = attacker.attack
@@ -399,14 +424,18 @@ class DamageCalculator:
         damage = damage // defense
         damage //= 50
 
-        # Apply burn status (lines 3262-3264)
+        # Apply burn status (lines 3262-3264); Facade ignores burn's Attack halving
         if (attacker.status1 & Status1.BURN) and attacker.ability != Ability.GUTS:
-            damage //= 2
+            if move.effect != MoveEffect.FACADE:
+                damage //= 2
 
         # Apply Reflect (lines 3266-3273)
         if (side_status & 0x2) and critical_multiplier == 1:  # SIDE_STATUS_REFLECT
-            # TODO: Handle double battle cases
-            damage //= 2
+            # Doubles: 2/3 reduction, Singles: 1/2 reduction
+            if self.battle_state is not None and self._is_doubles():
+                damage = (damage * 2) // 3
+            else:
+                damage //= 2
 
         # TODO: Apply double battle spread move reduction (lines 3275-3277)
 
@@ -460,8 +489,10 @@ class DamageCalculator:
 
         # Apply Light Screen (lines 3317-3324)
         if (side_status & 0x4) and critical_multiplier == 1:  # SIDE_STATUS_LIGHTSCREEN
-            # TODO: Handle double battle cases
-            damage //= 2
+            if self.battle_state is not None and self._is_doubles():
+                damage = (damage * 2) // 3
+            else:
+                damage //= 2
 
         # TODO: Apply double battle spread move reduction (lines 3326-3328)
 
@@ -470,6 +501,28 @@ class DamageCalculator:
             damage = self._apply_weather_effects(damage, move_type, weather)
 
         # TODO: Apply Flash Fire (lines 3366-3368)
+
+        # Apply Mud Sport / Water Sport dampening (approximation):
+        # If any active battler has Mud Sport, reduce Electric-type damage by 50%
+        # If any active battler has Water Sport, reduce Fire-type damage by 50%
+        if self.battle_state is not None:
+            if move_type == Type.ELECTRIC:
+                for b in self.battle_state.battlers:
+                    if b is None:
+                        continue
+                    # Find index to check status3 flags
+                    idx = self.battle_state.battlers.index(b)
+                    if 0 <= idx < 4 and self.battle_state.status3_mudsport[idx]:
+                        damage //= 2
+                        break
+            if move_type == Type.FIRE:
+                for b in self.battle_state.battlers:
+                    if b is None:
+                        continue
+                    idx = self.battle_state.battlers.index(b)
+                    if 0 <= idx < 4 and self.battle_state.status3_watersport[idx]:
+                        damage //= 2
+                        break
 
         return damage
 
@@ -542,6 +595,15 @@ class DamageCalculator:
                 self.battle_state.protect_structs[attacker_id].helpingHand = False
 
         return final_damage
+
+    def _is_doubles(self) -> bool:
+        """Return True if current battle is doubles (both sides have partner)."""
+        if self.battle_state is None:
+            return False
+        # Consider doubles if any of the partner slots are occupied
+        left_player = self.battle_state.battlers[0] is not None and self.battle_state.battlers[2] is not None
+        left_opp = self.battle_state.battlers[1] is not None and self.battle_state.battlers[3] is not None
+        return left_player or left_opp
 
     def _apply_item_effects(
         self,
@@ -623,17 +685,15 @@ class DamageCalculator:
         if attacker.ability == Ability.HUSTLE:
             attack = (150 * attack) // 100
 
-        # Plus and Minus abilities (lines 3206-3209 in C)
-        # TODO: Implement ABILITY_ON_FIELD2 check for Plus/Minus synergy
-        if attacker.ability == Ability.PLUS:
-            # Plus boosts Special Attack if Minus is also on field
-            # For now, skip the field check
-            pass
-
-        if attacker.ability == Ability.MINUS:
-            # Minus boosts Special Attack if Plus is also on field
-            # For now, skip the field check
-            pass
+        # Plus and Minus abilities (lines 3206-3209 in C):
+        # Boost user's Special Attack by 50% if an ally on the field has Plus or Minus
+        if self.battle_state is not None and attacker.ability in (Ability.PLUS, Ability.MINUS):
+            attacker_id = self.battle_state.battler_attacker
+            partner_id = attacker_id ^ 2  # partner slot in doubles
+            if 0 <= partner_id < len(self.battle_state.battlers):
+                partner = self.battle_state.battlers[partner_id]
+                if partner is not None and partner.hp > 0 and partner.ability in (Ability.PLUS, Ability.MINUS):
+                    sp_attack = (sp_attack * 150) // 100
 
         # Guts increases Attack when statused (lines 3210-3211 in C)
         if attacker.ability == Ability.GUTS and attacker.status1:

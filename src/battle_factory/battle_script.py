@@ -586,7 +586,9 @@ class BattleScriptInterpreter:
             # Fury Cutter: reset counter on miss
             if md and md.effect == MoveEffect.FURY_CUTTER:
                 attacker_id = battle_state.battler_attacker
-                battle_state.disable_structs[attacker_id].furyCutterCounter = 0
+                ds = battle_state.disable_structs[attacker_id]
+                # Start at 1 and cap somewhere reasonable (game caps power, we can cap counter for safety)
+                ds.furyCutterCounter = min(5, max(1, ds.furyCutterCounter + 1))
             self.current_script.pc = len(self.current_script.commands)
             return True
 
@@ -917,7 +919,7 @@ class BattleScriptInterpreter:
             target_protect.endured = False
             return True
 
-        # Track last damage received for Counter/Mirror Coat on the target
+        # Track last damage received for Counter/Mirror Coat on the target; escalate Rage
         # Determine if the move was physical or special based on type split (pre-Gen4 by type)
         move_type = get_move_type(battle_state.current_move)
         # Simple physical type set from damage_calculator.is_type_physical
@@ -930,6 +932,14 @@ class BattleScriptInterpreter:
             battle_state.protect_structs[battle_state.battler_target].specialDmg = dealt
             battle_state.protect_structs[battle_state.battler_target].specialBattlerId = battle_state.battler_attacker
             battle_state.protect_structs[battle_state.battler_target].physicalDmg = 0
+
+        # Rage: if the target has Rage volatile and took damage, raise its Attack by 1
+        if dealt > 0:
+            tmon = target
+            if tmon.status2.is_raging():
+                from src.battle_factory.move_effects import stat_changes
+
+                stat_changes.change_stage(tmon, STAT_ATK, +1)
 
         # If the target is currently Biding, accumulate damage and remember last attacker
         t_id = battle_state.battler_target
@@ -1033,6 +1043,15 @@ class BattleScriptInterpreter:
         battle_state.protect_structs[battler_id] = ProtectStruct()
         battle_state.disable_structs[battler_id] = DisableStruct()
         battle_state.special_statuses[battler_id] = SpecialStatus()
+        # Clear semi-invuln and minimize flags on switch-in
+        battle_state.status3_on_air[battler_id] = False
+        battle_state.status3_underground[battler_id] = False
+        battle_state.status3_underwater[battler_id] = False
+        battle_state.status3_minimized[battler_id] = False
+        # Clear per-battler field sport/root flags
+        battle_state.status3_mudsport[battler_id] = False
+        battle_state.status3_watersport[battler_id] = False
+        battle_state.status3_rooted[battler_id] = False
 
         # Apply entry hazards (Gen 3 Spikes only)
         from src.battle_factory.enums import Ability, Type

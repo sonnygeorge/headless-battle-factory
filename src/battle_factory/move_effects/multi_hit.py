@@ -5,6 +5,8 @@ from src.battle_factory.data.moves import get_move_type
 from src.battle_factory.type_effectiveness import TypeEffectiveness
 from src.battle_factory.enums import Ability
 from src.battle_factory.enums.move_effect import MoveEffect
+from src.battle_factory.move_effects import status_effects
+from src.battle_factory.data.moves import get_move_data
 
 
 def _advance_rng(battle_state: BattleState) -> int:
@@ -161,6 +163,74 @@ def perform_triple_kick(battle_state: BattleState) -> int:
         defender.hp = max(0, defender.hp - dmg)
         total_damage += dmg
         battle_state.script_damage = dmg
+
+    battle_state.battle_move_damage = total_damage
+    return total_damage
+
+
+def perform_twineedle(battle_state: BattleState) -> int:
+    """Twineedle: exactly 2 hits, with a poison chance applied per hit.
+
+    Gen 3 behavior: two hits; each hit has the move's secondaryEffectChance to poison
+    (20% in Emerald). Shield Dust prevents on-target secondaries.
+    """
+    attacker: BattlePokemon | None = battle_state.battlers[battle_state.battler_attacker]
+    defender: BattlePokemon | None = battle_state.battlers[battle_state.battler_target]
+    if attacker is None or defender is None:
+        return 0
+
+    total_damage = 0
+    calculator = DamageCalculator(battle_state)
+    move_type = get_move_type(battle_state.current_move)
+    md = get_move_data(battle_state.current_move)
+    chance = md.secondaryEffectChance if md and md.secondaryEffectChance else 0
+
+    for _ in range(2):
+        if defender.hp <= 0:
+            break
+
+        base = calculator.calculate_base_damage(
+            attacker=attacker,
+            defender=defender,
+            move=battle_state.current_move,
+            side_status=battle_state.side_statuses[battle_state.battler_target % 2],
+            power_override=0,
+            type_override=None,
+            attacker_id=battle_state.battler_attacker,
+            defender_id=battle_state.battler_target,
+            critical_multiplier=1,
+            weather=battle_state.weather,
+        )
+
+        eff1 = TypeEffectiveness.get_effectiveness(move_type, defender.types[0])
+        dmg = (base * eff1) // 10
+        if defender.types[1] is not None and defender.types[1] != defender.types[0]:
+            eff2 = TypeEffectiveness.get_effectiveness(move_type, defender.types[1])
+            dmg = (dmg * eff2) // 10
+
+        if move_type in attacker.types:
+            dmg = (dmg * 15) // 10
+
+        _advance_rng(battle_state)
+        rand16 = (battle_state.rng_seed >> 16) & 0xFFFF
+        roll = 85 + (rand16 % 16)
+        dmg = (dmg * roll) // 100
+
+        if dmg < 1:
+            dmg = 1
+
+        defender.hp = max(0, defender.hp - dmg)
+        total_damage += dmg
+        battle_state.script_damage = dmg
+
+        # Per-hit poison chance
+        if chance > 0 and defender.ability != Ability.SHIELD_DUST:
+            # roll percent
+            _advance_rng(battle_state)
+            r = (battle_state.rng_seed >> 16) & 0xFFFF
+            threshold = (chance * 0xFFFF) // 100
+            if r < threshold:
+                status_effects.secondary_poison(battle_state)
 
     battle_state.battle_move_damage = total_damage
     return total_damage

@@ -35,15 +35,6 @@ def _roll_percent(battle_state: BattleState, percent: int) -> bool:
     return roll < threshold
 
 
-def _choose_random_index(battle_state: BattleState, count: int) -> int:
-    # Advance RNG and choose 0..count-1 uniformly
-    if count <= 0:
-        return -1
-    battle_state.rng_seed = _lcg_advance(battle_state.rng_seed)
-    roll = (battle_state.rng_seed >> 16) & 0xFFFF
-    return roll % count
-
-
 def _execute_called_move(battle_state: BattleState, move: Move) -> None:
     """Execute a called move (Metronome/Assist/Nature Power) within primary hook.
     Follows the basic damage script pipeline using the current interpreter and library.
@@ -53,7 +44,6 @@ def _execute_called_move(battle_state: BattleState, move: Move) -> None:
     - pokeemerald/src/battle_script_commands.c (Cmd_metronome dispatch to effect script)
     """
     from src.battle_factory.battle_script import BattleScriptLibrary, BattleScriptInterpreter
-    from src.battle_factory.data.moves import get_move_effect
 
     prev_move = battle_state.current_move
     prev_slot = battle_state.current_move_slot
@@ -103,6 +93,15 @@ def apply_primary(battle_state: BattleState) -> None:
         meta_moves.apply_sketch(battle_state)
     elif effect == MoveEffect.ROLE_PLAY:
         meta_moves.apply_role_play(battle_state)
+    elif effect == MoveEffect.SKILL_SWAP:
+        meta_moves.apply_skill_swap(battle_state)
+    elif effect == MoveEffect.FAKE_OUT:
+        # Fail if not the user's first turn on field (Gen 3 behavior)
+        uid = battle_state.battler_attacker
+        if battle_state.disable_structs[uid].isFirstTurn == 0:
+            # MOVE_RESULT_FAILED bit
+            battle_state.move_result_flags |= 1 << 5
+            return
     if effect == MoveEffect.SLEEP:
         status_effects.primary_sleep(battle_state)
     elif effect == MoveEffect.TOXIC:
@@ -126,6 +125,8 @@ def apply_primary(battle_state: BattleState) -> None:
         side = attacker_id % 2
         battle_state.side_statuses[side] |= SIDE_STATUS_MIST
         battle_state.mist_timers[side] = 5
+    elif effect == MoveEffect.MINIMIZE:
+        status_effects.primary_minimize(battle_state)
     elif effect == MoveEffect.ENDURE:
         field_effects.primary_endure(battle_state)
     elif effect == MoveEffect.SUBSTITUTE:
@@ -142,6 +143,8 @@ def apply_primary(battle_state: BattleState) -> None:
                 two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.UNDERGROUND, True)
             elif battle_state.current_move == Move.DIVE:
                 two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.UNDERWATER, True)
+            elif battle_state.current_move == Move.BOUNCE:
+                two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.AIR, True)
             # First turn ends here
             return
         else:
@@ -152,6 +155,8 @@ def apply_primary(battle_state: BattleState) -> None:
                 two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.UNDERGROUND, False)
             elif battle_state.current_move == Move.DIVE:
                 two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.UNDERWATER, False)
+            elif battle_state.current_move == Move.BOUNCE:
+                two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.AIR, False)
             two_turn.clear_charging(battle_state)
             two_turn.resolve_two_turn_damage(battle_state)
             return
@@ -238,12 +243,19 @@ def apply_primary(battle_state: BattleState) -> None:
         ohko.apply_ohko(battle_state)
     elif effect == MoveEffect.MULTI_HIT:
         # Perform 2-5 hits using distribution
-        multi_hit.perform_multi_hit(battle_state)
+        # Twineedle is a special multi-hit with per-hit poison handling
+        if battle_state.current_move == Move.TWINEEDLE:
+            multi_hit.perform_twineedle(battle_state)
+        else:
+            multi_hit.perform_multi_hit(battle_state)
     elif effect == MoveEffect.DOUBLE_HIT:
         multi_hit.perform_multi_hit(battle_state, fixed_hits=2)
     elif effect == MoveEffect.TRIPLE_KICK:
         # Gen 3: 3 hits with escalating power 10/20/30
         multi_hit.perform_triple_kick(battle_state)
+    elif effect == MoveEffect.BEAT_UP:
+        # Each healthy, status-free party member contributes a hit
+        meta_moves.apply_beat_up(battle_state)
     elif effect == MoveEffect.HAZE:
         field_effects.primary_haze(battle_state)
     elif effect in (MoveEffect.RESTORE_HP,):
@@ -252,6 +264,8 @@ def apply_primary(battle_state: BattleState) -> None:
         healing.primary_restore_half(battle_state)
     elif effect in (MoveEffect.REST,):
         healing.primary_rest(battle_state)
+    elif effect == MoveEffect.SWALLOW:
+        status_effects.primary_swallow(battle_state)
     elif effect == MoveEffect.WILL_O_WISP:
         status_effects.primary_will_o_wisp(battle_state)
     elif effect in (MoveEffect.MORNING_SUN, MoveEffect.SYNTHESIS, MoveEffect.MOONLIGHT):
@@ -261,6 +275,8 @@ def apply_primary(battle_state: BattleState) -> None:
     elif effect == MoveEffect.TRAP:
         # Bind/Wrap/Fire Spin/Clamp/Whirlpool/Sand Tomb all use EFFECT_TRAP
         status_effects.primary_partial_trap(battle_state)
+    elif effect == MoveEffect.INGRAIN:
+        status_effects.primary_ingrain(battle_state)
     elif effect == MoveEffect.DEFENSE_CURL:
         status_effects.primary_defense_curl(battle_state)
     elif effect == MoveEffect.CHARGE:
@@ -283,6 +299,31 @@ def apply_primary(battle_state: BattleState) -> None:
         support_moves.primary_camouflage(battle_state)
     elif effect == MoveEffect.YAWN:
         status_effects.primary_yawn(battle_state)
+    elif effect == MoveEffect.BULK_UP:
+        # Raise user's Attack and Defense by 1
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_ATK, 1)
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_DEF, 1)
+        return
+    elif effect == MoveEffect.CALM_MIND:
+        # Raise user's Sp. Atk and Sp. Def by 1
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_SPATK, 1)
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_SPDEF, 1)
+        return
+    elif effect == MoveEffect.COSMIC_POWER:
+        # Raise user's Def and Sp. Def by 1
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_DEF, 1)
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_SPDEF, 1)
+        return
+    elif effect == MoveEffect.DRAGON_DANCE:
+        # Raise user's Atk and Speed by 1
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_ATK, 1)
+        stat_changes.raise_stat_user(battle_state, stat_changes.STAT_SPEED, 1)
+        return
+    elif effect == MoveEffect.TICKLE:
+        # Lower target's Atk and Def by 1
+        stat_changes.lower_stat_target(battle_state, stat_changes.STAT_ATK, 1)
+        stat_changes.lower_stat_target(battle_state, stat_changes.STAT_DEF, 1)
+        return
     elif effect == MoveEffect.DESTINY_BOND:
         # Set Destiny Bond volatile for this turn: on KO, the attacker faints too
         user = battle_state.battler_attacker
@@ -294,6 +335,8 @@ def apply_primary(battle_state: BattleState) -> None:
         support_moves.primary_perish_song(battle_state)
     elif effect == MoveEffect.MEMENTO:
         support_moves.primary_memento(battle_state)
+    elif effect == MoveEffect.PAY_DAY:
+        status_effects.primary_pay_day(battle_state)
     elif effect == MoveEffect.FUTURE_SIGHT:
         # Schedule delayed attack on target position after 2 turns
         tid = battle_state.battler_target
@@ -314,6 +357,8 @@ def apply_primary(battle_state: BattleState) -> None:
         status_effects.primary_swagger(battle_state)
     elif effect == MoveEffect.FLATTER:
         status_effects.primary_flatter(battle_state)
+    elif effect == MoveEffect.FOCUS_ENERGY:
+        status_effects.primary_focus_energy(battle_state)
     elif effect == MoveEffect.MEAN_LOOK:
         # Apply escape prevention to the target
         tid = battle_state.battler_target
@@ -332,6 +377,8 @@ def apply_primary(battle_state: BattleState) -> None:
         return
     elif effect == MoveEffect.DISABLE:
         status_effects.primary_disable(battle_state)
+    elif effect == MoveEffect.SPITE:
+        status_effects.primary_spite(battle_state)
     elif effect == MoveEffect.ENCORE:
         status_effects.primary_encore(battle_state)
     elif effect == MoveEffect.IMPRISON:
@@ -367,6 +414,12 @@ def apply_primary(battle_state: BattleState) -> None:
         battle_state.weather = Weather.HAIL
         battle_state.weather_timer = WEATHER_DEFAULT_DURATION
         return
+    elif effect == MoveEffect.MUD_SPORT:
+        status_effects.primary_mud_sport(battle_state)
+        return
+    elif effect == MoveEffect.WATER_SPORT:
+        status_effects.primary_water_sport(battle_state)
+        return
     elif effect == MoveEffect.ROAR:
         phazing.primary_phaze(battle_state)
     elif effect == MoveEffect.COUNTER:
@@ -382,6 +435,8 @@ def apply_primary(battle_state: BattleState) -> None:
     # New primary effects wiring
     elif effect == MoveEffect.FORESIGHT:
         status_effects.primary_foresight(battle_state)
+    elif effect == MoveEffect.LOCK_ON:
+        status_effects.primary_lock_on(battle_state)
     elif effect == MoveEffect.REFRESH:
         status_effects.primary_refresh(battle_state)
     elif effect == MoveEffect.HEAL_BELL:
@@ -427,10 +482,10 @@ def apply_secondary(battle_state: BattleState) -> None:
         # Heal 1/2 of damage dealt
         recoil_and_drain.apply_drain_heal(battle_state, 1, 2)
     elif effect == MoveEffect.RECOIL:
-        # Apply generic recoil of 1/3 damage dealt for this family (exact per-move may differ)
+        # Apply exact recoil ratios per move
         atk = battle_state.battlers[battle_state.battler_attacker]
         if atk is not None:
-            atk.hp = recoil_and_drain.apply_recoil(atk.hp, 1, 3, battle_state.script_damage)
+            atk.hp = recoil_and_drain.apply_recoil_for_move(atk.hp, battle_state.current_move, battle_state.script_damage)
     elif effect == MoveEffect.RECOIL_IF_MISS:
         # Crash damage on miss: apply after accuracy fail path; here we emulate in secondary hook when flagged
         atk = battle_state.battlers[battle_state.battler_attacker]
@@ -447,6 +502,21 @@ def apply_secondary(battle_state: BattleState) -> None:
         item_interactions.secondary_thief_covet(battle_state)
     elif effect == MoveEffect.TRICK:
         item_interactions.secondary_trick(battle_state)
+    elif effect == MoveEffect.SMELLINGSALT:
+        # Cure paralysis on the target if it was paralyzed
+        status_effects.secondary_smellingsalt(battle_state)
+    elif effect == MoveEffect.SKY_ATTACK:
+        status_effects.secondary_flinch_sky_attack(battle_state)
+    elif effect == MoveEffect.FLINCH_MINIMIZE_HIT:
+        status_effects.secondary_flinch_minimize_family(battle_state)
+    elif effect == MoveEffect.OVERHEAT:
+        status_effects.secondary_overheat_user_drop(battle_state)
+    elif effect == MoveEffect.POISON_FANG:
+        status_effects.secondary_badly_poison(battle_state)
+    elif effect == MoveEffect.BLAZE_KICK:
+        status_effects.secondary_burn(battle_state)
+    elif effect == MoveEffect.POISON_TAIL:
+        status_effects.secondary_poison(battle_state)
     # Add more secondary effects as implemented
 
 
