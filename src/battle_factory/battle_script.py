@@ -1,11 +1,11 @@
 from enum import IntEnum
 
-from src.battle_factory.enums import MoveEffect, HoldEffect, Ability, Species, MoveTarget
+from src.battle_factory.enums import MoveEffect, HoldEffect, Ability, Species, MoveTarget, Type
 from src.battle_factory.damage_calculator import DamageCalculator
 from src.battle_factory.type_effectiveness import TypeEffectiveness
 from src.battle_factory.data.moves import get_move_effect, get_move_type, get_move_data
 from src.battle_factory.data.items import get_hold_effect
-from src.battle_factory.schema.battle_state import BattleState
+from src.battle_factory.schema.battle_state import BattleState, DisableStruct, ProtectStruct, SpecialStatus
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
 from src.battle_factory.damage_calculator import is_type_physical
 from src.battle_factory.constants import (
@@ -19,11 +19,13 @@ from src.battle_factory.constants import (
     MOVE_RESULT_FAILED,
     MSG_FOCUS_PUNCH_LOST_FOCUS,
 )
+from src.battle_factory.move_effects import stat_changes, effect_applier
 from src.battle_factory.move_effects.two_turn import is_target_invulnerable, can_hit_through_invulnerability
 from src.battle_factory.enums import MoveEffect, Ability, Move
 from src.battle_factory.enums.status import Status1, Status2
 from src.battle_factory.data.moves import get_move_data
 from src.battle_factory.damage_calculator import STAT_STAGE_RATIOS
+from src.battle_factory.utils import rng
 
 
 class BattleScriptCommand(IntEnum):
@@ -423,22 +425,19 @@ class BattleScriptInterpreter:
         # Paralysis 25%
         if attacker.status1 & Status1.PARALYSIS:
             # RNG roll
-            battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-            if ((battle_state.rng_seed >> 16) & 0xFF) < 64:  # ~25%
+            if (rng.rand16(battle_state) & 0xFF) < 64:  # ~25%
                 immobilized = True
 
         # Attraction 50%
         if attacker.status2.is_infatuated():
-            battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-            if ((battle_state.rng_seed >> 16) & 1) == 0:
+            if (rng.rand16(battle_state) & 1) == 0:
                 immobilized = True
 
         # Confusion: 50% chance to hurt itself
         if attacker.status2.is_confused():
             # Decrement confusion counter each turn
             attacker.status2 = attacker.status2.decrement_confusion()
-            battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-            if ((battle_state.rng_seed >> 16) & 1) == 0:
+            if (rng.rand16(battle_state) & 1) == 0:
                 # Hurt itself: Gen 3 uses 40 BP typeless physical vs own Defense; no STAB/type
                 level = attacker.level
                 atk = attacker.attack
@@ -453,8 +452,7 @@ class BattleScriptInterpreter:
                 # Base damage formula
                 dmg = (((2 * level // 5 + 2) * 40 * atk) // max(1, df)) // 50 + 2
                 # Random 85-100%
-                battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-                r16 = (battle_state.rng_seed >> 16) & 0xFFFF
+                r16 = rng.rand16(battle_state)
                 roll = 85 + (r16 % 16)
                 dmg = (dmg * roll) // 100
                 if dmg < 1:
@@ -572,8 +570,7 @@ class BattleScriptInterpreter:
             final_acc = 100
 
         # RNG roll
-        battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-        roll = (battle_state.rng_seed >> 16) % 100 + 1  # 1..100
+        roll = rng.rand16(battle_state) % 100 + 1  # 1..100
         if roll > final_acc:
             battle_state.move_result_flags |= MOVE_RESULT_MISSED
             # Rollout/Ice Ball: reset timer on miss
@@ -755,7 +752,7 @@ class BattleScriptInterpreter:
         # For now, skip these checks as they're not relevant to Battle Factory
 
         # Roll for critical hit using battle state RNG (use upper 16 bits thresholding for fairness)
-        rnd = self._random_crit_roll(battle_state)
+        rnd = rng.rand16(battle_state)
         # Use upper 16 bits to approximate uniformity, then modulo by table denom (as in C)
         if ((rnd >> 16) & 0xFFFF) % CRIT_CHANCE_TABLE[crit_chance] == 0:
             battle_state.critical_multiplier = 2
@@ -865,8 +862,7 @@ class BattleScriptInterpreter:
 
         # Apply random damage factor (85-100% of calculated damage)
         # Use the game's LCG for determinism
-        battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-        rand16 = (battle_state.rng_seed >> 16) & 0xFFFF
+        rand16 = rng.rand16(battle_state)
         roll = 85 + (rand16 % 16)  # 85..100 inclusive
         battle_state.battle_move_damage = (battle_state.battle_move_damage * roll) // 100
 
@@ -937,8 +933,6 @@ class BattleScriptInterpreter:
         if dealt > 0:
             tmon = target
             if tmon.status2.is_raging():
-                from src.battle_factory.move_effects import stat_changes
-
                 stat_changes.change_stage(tmon, STAT_ATK, +1)
 
         # If the target is currently Biding, accumulate damage and remember last attacker
@@ -1037,9 +1031,6 @@ class BattleScriptInterpreter:
         battle_state.battlers[battler_id] = new_mon
         battle_state.active_party_index[battler_id] = replacement_slot
 
-        # Reset temporary structures
-        from src.battle_factory.schema.battle_state import DisableStruct, ProtectStruct, SpecialStatus
-
         battle_state.protect_structs[battler_id] = ProtectStruct()
         battle_state.disable_structs[battler_id] = DisableStruct()
         battle_state.special_statuses[battler_id] = SpecialStatus()
@@ -1054,8 +1045,6 @@ class BattleScriptInterpreter:
         battle_state.status3_rooted[battler_id] = False
 
         # Apply entry hazards (Gen 3 Spikes only)
-        from src.battle_factory.enums import Ability, Type
-
         opponent_side = 1 - (battler_id % 2)
         layers = battle_state.spikes_layers[opponent_side]
         if layers > 0 and new_mon is not None:
@@ -1073,32 +1062,17 @@ class BattleScriptInterpreter:
 
     def _cmd_seteffectwithchance(self, battle_state: BattleState) -> bool:
         """Set move effect with chance - mirrors Cmd_seteffectwithchance()"""
-        try:
-            from src.battle_factory.move_effects import effect_applier
-
-            effect_applier.apply_with_chance(battle_state)
-        except Exception:
-            pass
+        effect_applier.apply_with_chance(battle_state)
         return True
 
     def _cmd_seteffectprimary(self, battle_state: BattleState) -> bool:
         """Set primary effect - mirrors Cmd_seteffectprimary()"""
-        try:
-            from src.battle_factory.move_effects import effect_applier
-
-            effect_applier.apply_primary(battle_state)
-        except Exception:
-            pass
+        effect_applier.apply_primary(battle_state)
         return True
 
     def _cmd_seteffectsecondary(self, battle_state: BattleState) -> bool:
         """Set secondary effect - mirrors Cmd_seteffectsecondary()"""
-        try:
-            from src.battle_factory.move_effects import effect_applier
-
-            effect_applier.apply_secondary(battle_state)
-        except Exception:
-            pass
+        effect_applier.apply_secondary(battle_state)
         return True
 
     def _cmd_clearstatusfromeffect(self, battle_state: BattleState) -> bool:
@@ -1225,27 +1199,6 @@ class BattleScriptInterpreter:
     def _cmd_stub(self, battle_state: BattleState) -> bool:
         """Stub for unimplemented/skipped commands (animations, etc.)"""
         return True
-
-    # ==========================================================================
-    # HELPER METHODS
-    # ==========================================================================
-
-    def _random_crit_roll(self, battle_state: BattleState) -> int:
-        """
-        Generate random number for critical hit calculation using battle RNG
-
-        This uses the same RNG system as the original game for deterministic results.
-
-        Args:
-            battle_state: Current battle state containing RNG seed
-
-        Returns:
-            Random integer for crit calculation
-        """
-        # Use Linear Congruential Generator (LCG) for deterministic random numbers
-        # This matches the Random() function behavior in the original game
-        battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-        return battle_state.rng_seed
 
 
 class BattleScriptLibrary:

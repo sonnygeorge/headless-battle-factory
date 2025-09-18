@@ -1,6 +1,7 @@
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
 from src.battle_factory.enums import Ability, Weather
+from src.battle_factory.enums.status import Status1
 
 
 def _apply_heal(mon: BattlePokemon, amount: int) -> int:
@@ -46,8 +47,6 @@ def primary_rest(battle_state: BattleState) -> None:
     heal = max(0, mon.maxHP - mon.hp)
     restored = _apply_heal(mon, heal)
     # Cure all non-volatile major statuses and set sleep 2 turns
-    from src.battle_factory.enums.status import Status1
-
     mon.status1 = Status1.create_sleep(2)
     battle_state.script_damage = -restored
 

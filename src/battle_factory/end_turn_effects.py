@@ -8,7 +8,11 @@ This implements the same logic as DoFieldEndTurnEffects() and DoBattlerEndTurnEf
 from src.battle_factory.enums.end_turn_effects import EndTurnFieldEffect, EndTurnBattlerEffect
 from src.battle_factory.enums import Status1, Status2, Weather, Type
 from src.battle_factory.schema.battle_state import BattleState
+from src.battle_factory.damage_calculator import DamageCalculator
+from src.battle_factory.data.moves import get_move_data
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
+from src.battle_factory.move_effects.status_effects import apply_sleep
+from src.battle_factory.utils import rng
 
 
 class EndTurnEffectsProcessor:
@@ -358,9 +362,7 @@ class EndTurnEffectsProcessor:
                     battler.status2 = battler.status2.decrement_lock_confuse()
                     if battler.status2.get_lock_confuse_turns() == 0:
                         # Apply confusion 2-5 turns
-                        from src.battle_factory.move_effects.status_effects import _advance_rng
-
-                        r = _advance_rng(self.battle_state)
+                        r = rng.rand16(self.battle_state)
                         conf = 2 + (r % 4)
                         battler.status2 = battler.status2.remove_confusion() | Status2.confusion_turn(conf)
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.DISABLE
@@ -430,12 +432,10 @@ class EndTurnEffectsProcessor:
                     ds.tauntTimer2 -= 1
                     if ds.tauntTimer2 == 0:
                         # Attempt to apply sleep now, respecting current blockers
-                        from src.battle_factory.move_effects.status_effects import _apply_sleep
-
                         # Skip if target already has major status
                         if not battler.status1.has_major_status():
                             # Uproar/Insomnia/Vital Spirit prevent sleep inside _apply_sleep
-                            _apply_sleep(self.battle_state, battler_id, turns=2)
+                            apply_sleep(self.battle_state, battler_id, turns=2)
                 self.battle_state.turn_effects_tracker = EndTurnBattlerEffect.ITEMS2
                 effect_processed = True
 
@@ -531,9 +531,6 @@ class EndTurnEffectsProcessor:
                     if attacker is None or target is None or target.hp <= 0:
                         continue
                     # Calculate damage ignoring type immunity per Gen 3 quirk
-                    from src.battle_factory.damage_calculator import DamageCalculator
-                    from src.battle_factory.data.moves import get_move_data
-
                     calc = DamageCalculator(self.battle_state)
                     # Temporarily set context
                     self.battle_state.battler_attacker = atk_id

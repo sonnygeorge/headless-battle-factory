@@ -15,6 +15,7 @@ from src.battle_factory.enums.hold_effect import HoldEffect
 from src.battle_factory.enums.move_effect import MoveEffect
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
 from src.battle_factory.schema.battle_state import BattleState, DisableStruct, ProtectStruct, SpecialStatus
+from src.battle_factory.utils import rng
 
 
 class UserBattleAction(BaseModel):
@@ -377,7 +378,7 @@ class BattleEngine:
             if priority1 == priority2:  # Same priority, compare speeds
                 if speed1 == speed2:
                     # Random tiebreaker (line 4728 in C)
-                    return (self._rand16() & 1) == 0
+                    return (rng.rand16(self.battle_state) & 1) == 0
                 else:
                     return speed1 > speed2  # Higher speed goes first
             else:
@@ -385,7 +386,7 @@ class BattleEngine:
         else:  # Both priority 0, compare speeds (lines 4742-4749 in C)
             if speed1 == speed2:
                 # Random tiebreaker (line 4745 in C)
-                return (self._rand16() & 1) == 0
+                return (rng.rand16(self.battle_state) & 1) == 0
             else:
                 return speed1 > speed2  # Higher speed goes first
 
@@ -425,7 +426,7 @@ class BattleEngine:
         # Quick Claw can boost speed to maximum (lines 4653-4654, 4687-4688 in C)
         if hold_effect == HoldEffect.QUICK_CLAW:
             # The original uses a 16-bit roll each turn. Use the LCG helper.
-            random_value = self._rand16()
+            random_value = rng.rand16(self.battle_state)
             threshold = (0xFFFF * hold_effect_param) // 100
             if random_value < threshold:
                 speed = 0xFFFFFFFF  # UINT_MAX equivalent
@@ -435,11 +436,6 @@ class BattleEngine:
             speed //= 4
 
         return speed
-
-    def _rand16(self) -> int:
-        """Advance LCG and return 16-bit random value (faithful to Emerald RNG)."""
-        self.battle_state.rng_seed = (self.battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-        return self.battle_state.rng_seed & 0xFFFF
 
     def _get_chosen_move(self, battler_id: int) -> Move:
         """Get the move chosen by a battler"""

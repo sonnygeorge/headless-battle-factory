@@ -1,7 +1,3 @@
-import os
-from functools import lru_cache
-from typing import List
-
 from src.battle_factory.enums.species import Species
 from src.battle_factory.data.species_weights_table import get_weight_hg_by_species
 

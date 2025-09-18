@@ -1,22 +1,12 @@
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
 from src.battle_factory.damage_calculator import DamageCalculator
-from src.battle_factory.data.moves import get_move_type
+from src.battle_factory.data.moves import get_move_type, get_move_data
 from src.battle_factory.type_effectiveness import TypeEffectiveness
 from src.battle_factory.enums import Ability
 from src.battle_factory.enums.move_effect import MoveEffect
 from src.battle_factory.move_effects import status_effects
-from src.battle_factory.data.moves import get_move_data
-
-
-def _advance_rng(battle_state: BattleState) -> int:
-    battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-    return battle_state.rng_seed
-
-
-def _rand_percent(battle_state: BattleState) -> int:
-    _advance_rng(battle_state)
-    return (battle_state.rng_seed >> 16) & 0xFFFF
+from src.battle_factory.utils import rng
 
 
 def _roll_hit_count(battle_state: BattleState) -> int:
@@ -27,7 +17,7 @@ def _roll_hit_count(battle_state: BattleState) -> int:
 
     Source: pokeemerald/src/battle_script_commands.c (multi-hit logic)
     """
-    roll = _rand_percent(battle_state)  # 0..65535
+    roll = rng.rand16(battle_state)  # 0..65535
     # Thresholds for 37.5%, 75.0%, 87.5% of 65536
     t2 = (65536 * 375) // 1000  # 24576
     t3 = (65536 * 750) // 1000  # 49152
@@ -44,7 +34,7 @@ def _roll_hit_count(battle_state: BattleState) -> int:
 def perform_multi_hit(battle_state: BattleState, fixed_hits: int | None = None) -> int:
     """Apply EFFECT_MULTI_HIT damage 2-5 times (or fixed_hits when specified).
 
-    Mirrors Emerald's per-hit damage application: base calc → type → STAB → 85–100% roll
+    Mirrors Emerald's per-hit damage application: base calc → type → STAB → 85-100% roll
     repeated per hit, accumulating total. Accuracy is handled by the script earlier.
 
     Source: data/battle_scripts_1.s (BattleScript_EffectMultiHit) and
@@ -91,8 +81,7 @@ def perform_multi_hit(battle_state: BattleState, fixed_hits: int | None = None) 
             dmg = (dmg * 15) // 10
 
         # Random factor 85-100%
-        _advance_rng(battle_state)
-        rand16 = (battle_state.rng_seed >> 16) & 0xFFFF
+        rand16 = rng.rand16(battle_state)
         roll = 85 + (rand16 % 16)
         dmg = (dmg * roll) // 100
 
@@ -152,8 +141,7 @@ def perform_triple_kick(battle_state: BattleState) -> int:
         if move_type in attacker.types:
             dmg = (dmg * 15) // 10
 
-        _advance_rng(battle_state)
-        rand16 = (battle_state.rng_seed >> 16) & 0xFFFF
+        rand16 = rng.rand16(battle_state)
         roll = 85 + (rand16 % 16)
         dmg = (dmg * roll) // 100
 
@@ -211,8 +199,7 @@ def perform_twineedle(battle_state: BattleState) -> int:
         if move_type in attacker.types:
             dmg = (dmg * 15) // 10
 
-        _advance_rng(battle_state)
-        rand16 = (battle_state.rng_seed >> 16) & 0xFFFF
+        rand16 = rng.rand16(battle_state)
         roll = 85 + (rand16 % 16)
         dmg = (dmg * roll) // 100
 
@@ -226,8 +213,7 @@ def perform_twineedle(battle_state: BattleState) -> int:
         # Per-hit poison chance
         if chance > 0 and defender.ability != Ability.SHIELD_DUST:
             # roll percent
-            _advance_rng(battle_state)
-            r = (battle_state.rng_seed >> 16) & 0xFFFF
+            r = rng.rand16(battle_state)
             threshold = (chance * 0xFFFF) // 100
             if r < threshold:
                 status_effects.secondary_poison(battle_state)

@@ -2,6 +2,7 @@ from src.battle_factory.enums import Move, Ability, Type
 from src.battle_factory.enums.move_effect import MoveEffect
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.data.moves import get_move_data
+from src.battle_factory.utils import rng
 from src.battle_factory.move_effects import stat_changes, status_effects
 from src.battle_factory.data.species import get_base_stats
 
@@ -17,17 +18,6 @@ BATTLE_ENVIRONMENT_MOUNTAIN = 6
 BATTLE_ENVIRONMENT_CAVE = 7
 BATTLE_ENVIRONMENT_BUILDING = 8
 BATTLE_ENVIRONMENT_PLAIN = 9
-
-
-def _lcg_advance(seed: int) -> int:
-    return (seed * 1664525 + 1013904223) & 0xFFFFFFFF
-
-
-def _rand_choice_index(battle_state: BattleState, count: int) -> int:
-    if count <= 0:
-        return -1
-    battle_state.rng_seed = _lcg_advance(battle_state.rng_seed)
-    return ((battle_state.rng_seed >> 16) & 0xFFFF) % count
 
 
 def select_metronome_move(battle_state: BattleState) -> Move:
@@ -75,7 +65,7 @@ def select_metronome_move(battle_state: BattleState) -> Move:
     if not candidates:
         return Move.NONE
 
-    idx = _rand_choice_index(battle_state, len(candidates))
+    idx = rng.choice_index(battle_state, len(candidates))
     return candidates[idx]
 
 
@@ -182,7 +172,7 @@ def select_assist_move(battle_state: BattleState, attacker_id: int) -> Move:
     if not candidates:
         return Move.NONE
 
-    idx = _rand_choice_index(battle_state, len(candidates))
+    idx = rng.choice_index(battle_state, len(candidates))
     return candidates[idx]
 
 

@@ -5,6 +5,7 @@ from src.battle_factory.damage_calculator import DamageCalculator
 from src.battle_factory.data.moves import get_move_type
 from src.battle_factory.type_effectiveness import TypeEffectiveness
 from src.battle_factory.enums import Move
+from src.battle_factory.utils import rng
 
 
 def start_charging(battle_state: BattleState) -> None:
@@ -82,8 +83,7 @@ def resolve_two_turn_damage(battle_state: BattleState) -> None:
         dmg = (dmg * 15) // 10
 
     # Random roll 85-100%
-    battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-    rand16 = (battle_state.rng_seed >> 16) & 0xFFFF
+    rand16 = rng.rand16(battle_state)
     roll = 85 + (rand16 % 16)
     dmg = (dmg * roll) // 100
 

@@ -1,10 +1,6 @@
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.enums import Ability, Move, Type
-
-
-def _advance_rng(battle_state: BattleState) -> int:
-    battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-    return battle_state.rng_seed
+from src.battle_factory.utils import rng
 
 
 def apply_ohko(battle_state: BattleState) -> None:
@@ -65,8 +61,7 @@ def apply_ohko(battle_state: BattleState) -> None:
 
     hit = True
     if not sure_hit:
-        _advance_rng(battle_state)
-        roll = (battle_state.rng_seed >> 16) & 0xFFFF
+        roll = rng.rand16(battle_state)
         # Convert to percent roll
         threshold = (chance * 0xFFFF) // 100
         hit = roll < threshold

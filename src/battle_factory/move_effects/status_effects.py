@@ -4,6 +4,9 @@ from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.data.moves import get_move_type
 from src.battle_factory.enums.move import Move
 from src.battle_factory.move_effects import stat_changes
+from src.battle_factory.damage_calculator import DamageCalculator
+from src.battle_factory.data.moves import get_move_type
+from src.battle_factory.utils import rng
 
 # Side status bitmasks from include/constants/battle.h
 SIDE_STATUS_REFLECT = 1 << 0
@@ -37,7 +40,7 @@ def _can_apply_major_status(battle_state: BattleState, target_id: int) -> bool:
     return True
 
 
-def _apply_sleep(battle_state: BattleState, target_id: int, turns: int) -> None:
+def apply_sleep(battle_state: BattleState, target_id: int, turns: int) -> None:
     """Apply sleep with specified turns, respecting Gen 3 immunities.
 
     Insomnia/Vital Spirit, Uproar block sleep.
@@ -57,7 +60,7 @@ def _apply_sleep(battle_state: BattleState, target_id: int, turns: int) -> None:
     target.status1 = target.status1.remove_sleep().set_sleep_turns(turns)
 
 
-def _apply_poison(battle_state: BattleState, target_id: int, toxic: bool) -> None:
+def apply_poison(battle_state: BattleState, target_id: int, toxic: bool) -> None:
     """Apply regular or toxic poison, with Steel/Poison-type and Ability immunities."""
     target = battle_state.battlers[target_id]
     if target is None:
@@ -74,7 +77,7 @@ def _apply_poison(battle_state: BattleState, target_id: int, toxic: bool) -> Non
         target.status1 = target.status1.remove_poison() | Status1.create_poison()
 
 
-def _apply_burn(battle_state: BattleState, target_id: int) -> None:
+def apply_burn(battle_state: BattleState, target_id: int) -> None:
     """Apply burn, blocked by Fire-type and Water Veil (Gen 3)."""
     target = battle_state.battlers[target_id]
     if target is None:
@@ -87,7 +90,7 @@ def _apply_burn(battle_state: BattleState, target_id: int) -> None:
     target.status1 = target.status1.remove_burn() | Status1.create_burn()
 
 
-def _apply_paralysis(battle_state: BattleState, target_id: int) -> None:
+def apply_paralysis(battle_state: BattleState, target_id: int) -> None:
     """Apply paralysis, blocked by Electric-type and Limber (Gen 3)."""
     target = battle_state.battlers[target_id]
     if target is None:
@@ -100,7 +103,7 @@ def _apply_paralysis(battle_state: BattleState, target_id: int) -> None:
     target.status1 = target.status1.remove_paralysis() | Status1.create_paralysis()
 
 
-def _apply_freeze(battle_state: BattleState, target_id: int) -> None:
+def apply_freeze(battle_state: BattleState, target_id: int) -> None:
     """Apply freeze, blocked by Magma Armor (Gen 3)."""
     target = battle_state.battlers[target_id]
     if target is None:
@@ -121,7 +124,7 @@ def primary_sleep(battle_state: BattleState) -> None:
     if not _can_apply_major_status(battle_state, target_id):
         return
     # Sleep turns: Emerald uses 2-5 turns typically; as placeholder use 2
-    _apply_sleep(battle_state, target_id, turns=2)
+    apply_sleep(battle_state, target_id, turns=2)
 
 
 def primary_poison(battle_state: BattleState) -> None:
@@ -132,7 +135,7 @@ def primary_poison(battle_state: BattleState) -> None:
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
-    _apply_poison(battle_state, target_id, toxic=False)
+    apply_poison(battle_state, target_id, toxic=False)
 
 
 def primary_toxic(battle_state: BattleState) -> None:
@@ -143,7 +146,7 @@ def primary_toxic(battle_state: BattleState) -> None:
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
-    _apply_poison(battle_state, target_id, toxic=True)
+    apply_poison(battle_state, target_id, toxic=True)
 
 
 def secondary_poison(battle_state: BattleState) -> None:
@@ -160,7 +163,7 @@ def secondary_burn(battle_state: BattleState) -> None:
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
-    _apply_burn(battle_state, target_id)
+    apply_burn(battle_state, target_id)
 
 
 def secondary_badly_poison(battle_state: BattleState) -> None:
@@ -168,7 +171,7 @@ def secondary_badly_poison(battle_state: BattleState) -> None:
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
-    _apply_poison(battle_state, target_id, toxic=True)
+    apply_poison(battle_state, target_id, toxic=True)
 
 
 def primary_will_o_wisp(battle_state: BattleState) -> None:
@@ -179,7 +182,7 @@ def primary_will_o_wisp(battle_state: BattleState) -> None:
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
-    _apply_burn(battle_state, target_id)
+    apply_burn(battle_state, target_id)
 
 
 def secondary_overheat_user_drop(battle_state: BattleState) -> None:
@@ -218,7 +221,7 @@ def secondary_paralysis(battle_state: BattleState) -> None:
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
-    _apply_paralysis(battle_state, target_id)
+    apply_paralysis(battle_state, target_id)
 
 
 def secondary_freeze(battle_state: BattleState) -> None:
@@ -226,7 +229,7 @@ def secondary_freeze(battle_state: BattleState) -> None:
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
-    _apply_freeze(battle_state, target_id)
+    apply_freeze(battle_state, target_id)
 
 
 def secondary_flinch(battle_state: BattleState) -> None:
@@ -249,7 +252,7 @@ def secondary_paralysis_bounce(battle_state: BattleState) -> None:
     target_id = battle_state.battler_target
     if not _can_apply_major_status(battle_state, target_id):
         return
-    _apply_paralysis(battle_state, target_id)
+    apply_paralysis(battle_state, target_id)
 
 
 def secondary_flinch_sky_attack(battle_state: BattleState) -> None:
@@ -278,11 +281,6 @@ def secondary_smellingsalt(battle_state: BattleState) -> None:
 # =====================
 
 
-def _advance_rng(battle_state: BattleState) -> int:
-    battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-    return (battle_state.rng_seed >> 16) & 0xFFFF
-
-
 def primary_confuse(battle_state: BattleState) -> None:
     """Primary confusion effect (2-5 turns), respecting immunities.
 
@@ -299,7 +297,7 @@ def primary_confuse(battle_state: BattleState) -> None:
     if target.ability == Ability.OWN_TEMPO:
         return
     # Duration 2-5 turns in Gen 3
-    r = _advance_rng(battle_state)
+    r = rng.rand16(battle_state)
     turns = 2 + (r % 4)  # 2..5
     target.status2 = target.status2.remove_confusion() | Status2.confusion_turn(turns)
 
@@ -318,7 +316,7 @@ def primary_swagger(battle_state: BattleState) -> None:
         return
     # Confuse if possible
     if target.ability != Ability.OWN_TEMPO:
-        r = _advance_rng(battle_state)
+        r = rng.rand16(battle_state)
         turns = 2 + (r % 4)
         target.status2 = target.status2.remove_confusion() | Status2.confusion_turn(turns)
     # Raise target's Attack by 2 stages (even if confusion didn't apply)
@@ -340,7 +338,7 @@ def primary_flatter(battle_state: BattleState) -> None:
         return
     # Confuse if possible
     if target.ability != Ability.OWN_TEMPO:
-        r = _advance_rng(battle_state)
+        r = rng.rand16(battle_state)
         turns = 2 + (r % 4)
         target.status2 = target.status2.remove_confusion() | Status2.confusion_turn(turns)
     # Raise target's Special Attack by 2 stages regardless
@@ -380,7 +378,7 @@ def primary_taunt(battle_state: BattleState) -> None:
     target_id = battle_state.battler_target
     ds = battle_state.disable_structs[target_id]
     # Duration 2-5 turns
-    r = _advance_rng(battle_state)
+    r = rng.rand16(battle_state)
     ds.tauntTimer = 2 + (r % 4)
 
 
@@ -417,13 +415,13 @@ def primary_disable(battle_state: BattleState) -> None:
         candidates = [i for i, mv in enumerate(target.moves) if mv != 0 and target.pp[i] > 0]
         if not candidates:
             return
-        r = _advance_rng(battle_state)
+        r = rng.rand16(battle_state)
         slot = candidates[r % len(candidates)]
         move_to_disable = target.moves[slot]
     if move_to_disable == 0:
         return
     # Set Disable 2-5 turns
-    r = _advance_rng(battle_state)
+    r = rng.rand16(battle_state)
     ds_t.disabledMove = move_to_disable
     ds_t.disableTimer = 2 + (r % 4)
     ds_t.disableTimerStartValue = ds_t.disableTimer
@@ -449,7 +447,7 @@ def primary_encore(battle_state: BattleState) -> None:
     if target.pp[pos] <= 0:
         return
     # Gen 3 Encore lasts 3-7 turns
-    r = _advance_rng(battle_state)
+    r = rng.rand16(battle_state)
     ds_t.encoredMove = last_move
     ds_t.encoredMovePos = pos
     ds_t.encoreTimer = 3 + (r % 5)
@@ -462,8 +460,6 @@ def primary_defense_curl(battle_state: BattleState) -> None:
     if mon is None:
         return
     # Raise Defense by 1 and set Defense Curl flag
-    from src.battle_factory.move_effects import stat_changes
-
     stat_changes.raise_stat_user(battle_state, stat_changes.STAT_DEF, 1)
     mon.status2 |= Status2.DEFENSE_CURL
 
@@ -528,7 +524,7 @@ def primary_uproar(battle_state: BattleState) -> None:
     if mon is None:
         return
     # 2-5 turns
-    r = _advance_rng(battle_state)
+    r = rng.rand16(battle_state)
     turns = 2 + (r % 4)
     mon.status2 = mon.status2.set_uproar_turns(turns)
     # Lock-On timers decrement at end-turn; nothing to do here
@@ -541,7 +537,7 @@ def primary_rampage(battle_state: BattleState) -> None:
         return
     # If not already locked, start 2-3 turns lock
     if mon.status2.get_lock_confuse_turns() == 0:
-        r = _advance_rng(battle_state)
+        r = rng.rand16(battle_state)
         turns = 2 + (r % 2)  # 2-3
         mon.status2 = mon.status2.set_lock_confuse_turns(turns)
 
@@ -576,7 +572,7 @@ def primary_partial_trap(battle_state: BattleState) -> None:
     if target is None:
         return
     # Set wrapped turns 2-5 and mark escape prevention
-    r = _advance_rng(battle_state)
+    r = rng.rand16(battle_state)
     turns = 2 + (r % 4)
     target.status2 = target.status2.remove_wrapped() | Status2.wrapped_turn(turns)
     target.status2 |= Status2.ESCAPE_PREVENTION
@@ -629,10 +625,7 @@ def primary_spite(battle_state: BattleState) -> None:
     if last in target.moves:
         pos = target.moves.index(last)
         # Roll 2-5 using the LCG
-        from src.battle_factory.move_effects.status_effects import _advance_rng
-
-        _advance_rng(battle_state)
-        r16 = (battle_state.rng_seed >> 16) & 0xFFFF
+        r16 = rng.rand16(battle_state)
         reduction = 2 + (r16 % 4)
         target.pp[pos] = max(0, target.pp[pos] - reduction)
 
@@ -753,7 +746,7 @@ def primary_teeter_dance(battle_state: BattleState) -> None:
                 continue
             if mon.ability == Ability.OWN_TEMPO:
                 continue
-            r = _advance_rng(battle_state)
+            r = rng.rand16(battle_state)
             turns = 2 + (r % 4)
             mon.status2 = mon.status2.remove_confusion() | Status2.confusion_turn(turns)
 
@@ -764,7 +757,7 @@ def primary_present(battle_state: BattleState) -> None:
     Mirrors Cmd_presentdamagecalculation probabilities and effects for Gen 3.
     """
     # Roll 0-255
-    r16 = _advance_rng(battle_state)
+    r16 = rng.rand16(battle_state)
     rand = r16 & 0xFF
     target = battle_state.battlers[battle_state.battler_target]
     if target is None:
@@ -772,9 +765,6 @@ def primary_present(battle_state: BattleState) -> None:
 
     if rand < 102:
         # 40 BP: set script damage via battle calculator path
-        from src.battle_factory.damage_calculator import DamageCalculator
-        from src.battle_factory.data.moves import get_move_type
-
         calc = DamageCalculator(battle_state)
         attacker = battle_state.battlers[battle_state.battler_attacker]
         if attacker is None:
@@ -784,9 +774,6 @@ def primary_present(battle_state: BattleState) -> None:
         battle_state.battle_move_damage = base
         target.hp = max(0, target.hp - base)
     elif rand < 178:
-        from src.battle_factory.damage_calculator import DamageCalculator
-        from src.battle_factory.data.moves import get_move_type
-
         calc = DamageCalculator(battle_state)
         attacker = battle_state.battlers[battle_state.battler_attacker]
         if attacker is None:
@@ -796,9 +783,6 @@ def primary_present(battle_state: BattleState) -> None:
         battle_state.battle_move_damage = base
         target.hp = max(0, target.hp - base)
     elif rand < 204:
-        from src.battle_factory.damage_calculator import DamageCalculator
-        from src.battle_factory.data.moves import get_move_type
-
         calc = DamageCalculator(battle_state)
         attacker = battle_state.battlers[battle_state.battler_attacker]
         if attacker is None:

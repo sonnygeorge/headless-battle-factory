@@ -1,4 +1,4 @@
-from src.battle_factory.enums import Item, HoldEffect
+from src.battle_factory.enums import Item, HoldEffect, Species
 
 # Item to hold effect mapping - from pokeemerald/src/data/items.h
 # This is a subset focusing on items relevant to Battle Factory battles
@@ -175,8 +175,6 @@ def get_species_specific_crit_items() -> dict[Item, list]:
     Returns:
         Dictionary mapping items to list of species they affect
     """
-    from src.battle_factory.enums import Species
-
     return {
         Item.LUCKY_PUNCH: [Species.CHANSEY],
         Item.STICK: [Species.FARFETCHD],

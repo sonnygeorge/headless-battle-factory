@@ -1,17 +1,6 @@
 from src.battle_factory.enums import Ability, Move, Type
-from src.battle_factory.schema.battle_state import BattleState
-
-
-def _lcg_advance(seed: int) -> int:
-    return (seed * 1664525 + 1013904223) & 0xFFFFFFFF
-
-
-def _choose_random_index(battle_state: BattleState, count: int) -> int:
-    if count <= 0:
-        return -1
-    battle_state.rng_seed = _lcg_advance(battle_state.rng_seed)
-    roll = (battle_state.rng_seed >> 16) & 0xFFFF
-    return roll % count
+from src.battle_factory.schema.battle_state import BattleState, DisableStruct, ProtectStruct, SpecialStatus
+from src.battle_factory.utils import rng
 
 
 def primary_phaze(battle_state: BattleState) -> None:
@@ -64,7 +53,7 @@ def primary_phaze(battle_state: BattleState) -> None:
         return
 
     # Choose random candidate
-    idx = _choose_random_index(battle_state, len(candidates))
+    idx = rng.choice_index(battle_state, len(candidates))
     chosen_slot = candidates[idx]
     new_mon = party[chosen_slot]
     if new_mon is None:
@@ -76,9 +65,6 @@ def primary_phaze(battle_state: BattleState) -> None:
     battle_state.imprison_active[target_id] = False
     battle_state.battlers[target_id] = new_mon
     battle_state.active_party_index[target_id] = chosen_slot
-
-    # Clear temporary statuses on switch-in
-    from src.battle_factory.schema.battle_state import DisableStruct, ProtectStruct, SpecialStatus
 
     battle_state.protect_structs[target_id] = ProtectStruct()
     battle_state.disable_structs[target_id] = DisableStruct()

@@ -2,6 +2,7 @@ from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.enums import Ability
 from src.battle_factory.enums.status import Status2
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
+from src.battle_factory.utils import rng
 
 # Side status bitmasks from include/constants/battle.h
 SIDE_STATUS_REFLECT = 1 << 0
@@ -13,11 +14,6 @@ SIDE_STATUS_MIST = 1 << 8
 # Protect success thresholds mirroring Emerald behavior using a 16-bit RNG check
 # Values approximate sProtectSuccessRates; success if threshold >= Random16
 _PROTECT_THRESHOLDS = [0xFFFF, 0x7FFF, 0x3FFF, 0x1FFF, 0x0FFF, 0x07FF, 0x03FF]
-
-
-def _rand16_advance(battle_state: BattleState) -> int:
-    battle_state.rng_seed = (battle_state.rng_seed * 1664525 + 1013904223) & 0xFFFFFFFF
-    return (battle_state.rng_seed >> 16) & 0xFFFF
 
 
 def primary_protect(battle_state: BattleState) -> None:
@@ -34,7 +30,7 @@ def primary_protect(battle_state: BattleState) -> None:
 
     uses = ds.protectUses
     idx = uses if uses < len(_PROTECT_THRESHOLDS) else len(_PROTECT_THRESHOLDS) - 1
-    roll = _rand16_advance(battle_state)
+    roll = rng.rand16(battle_state)
     if roll <= _PROTECT_THRESHOLDS[idx]:
         # Success
         ps.protected = True
@@ -57,7 +53,7 @@ def primary_endure(battle_state: BattleState) -> None:
     # Similar chaining to Protect
     uses = ds.protectUses
     idx = uses if uses < len(_PROTECT_THRESHOLDS) else len(_PROTECT_THRESHOLDS) - 1
-    roll = _rand16_advance(battle_state)
+    roll = rng.rand16(battle_state)
     if roll <= _PROTECT_THRESHOLDS[idx]:
         ps.endured = True
         ds.protectUses = min(255, uses + 1)

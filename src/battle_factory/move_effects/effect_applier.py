@@ -1,6 +1,7 @@
 from src.battle_factory.enums import Ability, Move, MoveEffect, Type, Weather, Status2, SemiInvulnState
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.data.moves import get_move_effect, get_move_data
+from src.battle_factory.utils import rng
 from src.battle_factory.move_effects import (
     status_effects,
     field_effects,
@@ -20,19 +21,6 @@ from src.battle_factory.move_effects import (
 )
 from src.battle_factory.move_effects.field_effects import SIDE_STATUS_MIST
 from src.battle_factory.constants import WEATHER_DEFAULT_DURATION
-
-
-def _lcg_advance(seed: int) -> int:
-    return (seed * 1664525 + 1013904223) & 0xFFFFFFFF
-
-
-def _roll_percent(battle_state: BattleState, percent: int) -> bool:
-    # Returns True with given percent chance (0-100)
-    battle_state.rng_seed = _lcg_advance(battle_state.rng_seed)
-    # Use upper 16 bits like other places
-    roll = (battle_state.rng_seed >> 16) & 0xFFFF
-    threshold = (percent * 0xFFFF) // 100
-    return roll < threshold
 
 
 def _execute_called_move(battle_state: BattleState, move: Move) -> None:
@@ -546,5 +534,7 @@ def apply_with_chance(battle_state: BattleState) -> None:
     if percent <= 0:
         return
 
-    if _roll_percent(battle_state, percent):
+    roll = rng.rand16(battle_state)
+    threshold = (percent * 0xFFFF) // 100
+    if roll < threshold:
         apply_secondary(battle_state)
