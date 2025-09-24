@@ -107,12 +107,8 @@ def apply_primary(battle_state: BattleState) -> None:
     elif effect == MoveEffect.SAFEGUARD:
         field_effects.primary_safeguard(battle_state)
     elif effect == MoveEffect.MIST:
-        # Set side bit and timer
-        # timer tracking is in battle_state.mist_timers
-        attacker_id = battle_state.battler_attacker
-        side = attacker_id % 2
-        battle_state.side_statuses[side] |= SIDE_STATUS_MIST
-        battle_state.mist_timers[side] = 5
+        # Delegate to field effect to avoid duplication
+        field_effects.primary_mist(battle_state)
     elif effect == MoveEffect.MINIMIZE:
         status_effects.primary_minimize(battle_state)
     elif effect == MoveEffect.ENDURE:
@@ -147,6 +143,11 @@ def apply_primary(battle_state: BattleState) -> None:
                 two_turn.set_semi_invulnerable(battle_state, SemiInvulnState.AIR, False)
             two_turn.clear_charging(battle_state)
             two_turn.resolve_two_turn_damage(battle_state)
+            # Bounce secondary: 30% chance to paralyze on successful connection
+            if battle_state.current_move == Move.BOUNCE:
+                r16 = rng.rand16(battle_state)
+                if (r16 % 100) < 30:
+                    status_effects.secondary_paralysis_bounce(battle_state)
             return
     elif effect in (MoveEffect.RAZOR_WIND, MoveEffect.SKY_ATTACK, MoveEffect.SOLAR_BEAM):
         # Two-turn charging without semi-invulnerability

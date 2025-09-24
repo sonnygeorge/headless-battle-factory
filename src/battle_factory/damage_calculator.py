@@ -17,7 +17,7 @@ from typing import Optional
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
 from src.battle_factory.schema.battle_move import BattleMove
 from src.battle_factory.schema.battle_state import BattleState
-from src.battle_factory.enums import Move, Type, Ability, Item, Status1, Species
+from src.battle_factory.enums import Move, Type, Ability, Item, Status1, Species, Weather
 from src.battle_factory.enums.move_effect import MoveEffect
 from src.battle_factory.enums.hold_effect import HoldEffect
 from src.battle_factory.type_effectiveness import TypeEffectiveness
@@ -48,6 +48,10 @@ STAT_STAGE_RATIOS = [
     (35, 10),  # +5
     (40, 10),  # +6, MAX_STAT_STAGE
 ]
+
+# Side status bitmasks (must match move_effects.field_effects)
+SIDE_STATUS_REFLECT = 1 << 0
+SIDE_STATUS_LIGHTSCREEN = 1 << 1
 
 
 def apply_stat_mod(base_stat: int, pokemon: BattlePokemon, stat_index: int) -> int:
@@ -139,16 +143,16 @@ class DamageCalculator:
         # Weather Ball: type/power change with weather (Gen 3: 100 BP in weather)
         if move == Move.WEATHER_BALL and self.battle_state is not None:
             if not self.battle_state.are_weather_effects_nullified():
-                if self.battle_state.weather == 1:  # Weather.RAIN (enum value assumed 1)
-                    dynamic_type = Type.WATER
-                    move_power = 100
-                elif self.battle_state.weather == 2:  # Weather.SUN
+                if self.battle_state.weather == Weather.SUN:
                     dynamic_type = Type.FIRE
                     move_power = 100
-                elif self.battle_state.weather == 3:  # Weather.SANDSTORM
+                elif self.battle_state.weather == Weather.RAIN:
+                    dynamic_type = Type.WATER
+                    move_power = 100
+                elif self.battle_state.weather == Weather.SANDSTORM:
                     dynamic_type = Type.ROCK
                     move_power = 100
-                elif self.battle_state.weather == 4:  # Weather.HAIL
+                elif self.battle_state.weather == Weather.HAIL:
                     dynamic_type = Type.ICE
                     move_power = 100
 
@@ -273,11 +277,13 @@ class DamageCalculator:
             if attacker.status2.used_defense_curl():
                 move_power *= 2
 
-        # Fury Cutter ramp: doubles each consecutive use up to a cap (160 in Gen 3)
+        # Fury Cutter ramp: doubles each consecutive successful hit, resets on miss
         if move == Move.FURY_CUTTER and self.battle_state is not None:
             ds = self.battle_state.disable_structs[attacker_id]
-            counter = max(1, ds.furyCutterCounter)
-            move_power = min(160, move_power * (1 << (counter - 1)))
+            # counter represents number of consecutive successful hits (0 on first use before hit)
+            # Power progression: 10, 20, 40, 80, 160 (cap at 160)
+            consecutive_hits = max(0, ds.furyCutterCounter)
+            move_power = min(160, move_power * (1 << consecutive_hits))
 
         # Get move type (lines 3124-3127)
         if type_override:
@@ -310,7 +316,11 @@ class DamageCalculator:
         if attacker.ability in (Ability.HUGE_POWER, Ability.PURE_POWER):
             attack *= 2
 
-        # TODO: Apply badge boosts (lines 3161-3169) - skip for Battle Factory
+        # NOTE: Emerald disables badge stat boosts in Battle Frontier battles.
+        # See pokeemerald/src/pokemon.c ShouldGetStatBadgeBoost:
+        #   returns FALSE when (gBattleTypeFlags & BATTLE_TYPE_FRONTIER) is set,
+        #   so the +10% badge modifiers are not applied in the Factory.
+        # We therefore ignore badge boosts here for parity with the original.
 
         # Apply item effects (lines 3134-3156, 3170-3228)
         attack, sp_attack, defense, sp_defense = self._apply_item_effects(attacker, defender, attack, sp_attack, defense, sp_defense, move_type)
@@ -345,7 +355,7 @@ class DamageCalculator:
         attack, sp_attack, move_power = self._apply_ability_effects(attacker, defender, attack, sp_attack, move_power, move_type)
 
         # Apply Explosion effect (lines 3229-3230)
-        if move_data.effect == 7:  # EFFECT_EXPLOSION
+        if move_data.effect == MoveEffect.EXPLOSION:
             defense //= 2
 
         # Calculate damage based on physical/special split
@@ -430,7 +440,7 @@ class DamageCalculator:
                 damage //= 2
 
         # Apply Reflect (lines 3266-3273)
-        if (side_status & 0x2) and critical_multiplier == 1:  # SIDE_STATUS_REFLECT
+        if (side_status & SIDE_STATUS_REFLECT) and critical_multiplier == 1:
             # Doubles: 2/3 reduction, Singles: 1/2 reduction
             if self.battle_state is not None and self._is_doubles():
                 damage = (damage * 2) // 3
@@ -488,7 +498,7 @@ class DamageCalculator:
         damage //= 50
 
         # Apply Light Screen (lines 3317-3324)
-        if (side_status & 0x4) and critical_multiplier == 1:  # SIDE_STATUS_LIGHTSCREEN
+        if (side_status & SIDE_STATUS_LIGHTSCREEN) and critical_multiplier == 1:
             if self.battle_state is not None and self._is_doubles():
                 damage = (damage * 2) // 3
             else:
@@ -537,10 +547,7 @@ class DamageCalculator:
             elif move_type == Type.WATER:
                 damage = (15 * damage) // 10
 
-        # Solar Beam in bad weather (lines 3347-3349)
-        # TODO: Handle Solar Beam power reduction in bad weather
-        # if (weather & 0xE) and move == Move.SOLAR_BEAM:  # Rain, Sandstorm, or Hail
-        #     damage //= 2
+        # Solar Beam in bad weather (handled in two_turn.resolve_two_turn_damage)
 
         # Sun effects (lines 3351-3363)
         if weather & 0x2:  # B_WEATHER_SUN
@@ -624,9 +631,7 @@ class DamageCalculator:
         attacker_hold_effect = get_hold_effect(attacker.item)
         defender_hold_effect = get_hold_effect(defender.item)
 
-        # Type-bonus hold items (lines 3170-3182 in C)
-        # TODO: Implement sHoldEffectToType array lookup
-        # For now, skip type-specific item bonuses
+        # Type-bonus hold items handled later via hold_effect_to_type mapping
 
         # Apply boosts from hold items (lines 3184-3201 in C)
         if attacker_hold_effect == HoldEffect.CHOICE_BAND:
@@ -698,10 +703,6 @@ class DamageCalculator:
         # Guts increases Attack when statused (lines 3210-3211 in C)
         if attacker.ability == Ability.GUTS and attacker.status1:
             attack = (150 * attack) // 100
-
-        # Field sport abilities (lines 3214-3218 in C)
-        # TODO: Implement AbilityBattleEffects for Mud Sport and Water Sport
-        # These reduce Electric and Fire move power respectively
 
         # Overgrow, Blaze, Torrent, Swarm abilities (lines 3218-3227 in C)
         # These boost move power when HP is low (≤1/3 max HP)

@@ -584,8 +584,8 @@ class BattleScriptInterpreter:
             if md and md.effect == MoveEffect.FURY_CUTTER:
                 attacker_id = battle_state.battler_attacker
                 ds = battle_state.disable_structs[attacker_id]
-                # Start at 1 and cap somewhere reasonable (game caps power, we can cap counter for safety)
-                ds.furyCutterCounter = min(5, max(1, ds.furyCutterCounter + 1))
+                # Reset streak on miss
+                ds.furyCutterCounter = 0
             self.current_script.pc = len(self.current_script.commands)
             return True
 
@@ -752,9 +752,9 @@ class BattleScriptInterpreter:
         # For now, skip these checks as they're not relevant to Battle Factory
 
         # Roll for critical hit using battle state RNG (use upper 16 bits thresholding for fairness)
-        rnd = rng.rand16(battle_state)
-        # Use upper 16 bits to approximate uniformity, then modulo by table denom (as in C)
-        if ((rnd >> 16) & 0xFFFF) % CRIT_CHANCE_TABLE[crit_chance] == 0:
+        roll = rng.rand16(battle_state)
+        # Use 16-bit RNG value modulo table denominator (1/N chance)
+        if roll % CRIT_CHANCE_TABLE[crit_chance] == 0:
             battle_state.critical_multiplier = 2
         else:
             battle_state.critical_multiplier = 1
@@ -819,7 +819,12 @@ class BattleScriptInterpreter:
         if attacker is None or defender is None:
             return True
 
-        # Get move type (TODO: handle type-changing abilities/items)
+        # Get move type
+        # NOTE: In Gen 3, abilities/items don't change move type.
+        # Dynamic type cases are handled elsewhere:
+        # - Weather Ball/Hidden Power handled in damage calculator
+        # - Nature Power selects a different move before this point
+        # Remaining: if we later model gBattleStruct->dynamicMoveType, honor it here.
         move_type = get_move_type(battle_state.current_move)
 
         # Apply type effectiveness sequentially per defending type (Gen 3 behavior)
@@ -958,8 +963,8 @@ class BattleScriptInterpreter:
         if md and md.effect == MoveEffect.FURY_CUTTER:
             atk_id = battle_state.battler_attacker
             ds = battle_state.disable_structs[atk_id]
-            # Start at 1 and cap somewhere reasonable (game caps power, we can cap counter for safety)
-            ds.furyCutterCounter = min(5, max(1, ds.furyCutterCounter + 1))
+            # Increment consecutive-use counter on successful hit
+            ds.furyCutterCounter = min(5, ds.furyCutterCounter + 1)
 
         return True
 

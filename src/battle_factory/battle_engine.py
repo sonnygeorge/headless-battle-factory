@@ -357,21 +357,22 @@ class BattleEngine:
 
         # Get move priorities (lines 4690-4720 in C)
         if not ignore_chosen_moves and action1 and action2:
-            move1_id = action1.move_slot if action1.action_type == UserBattleAction.ActionType.USE_MOVE and action1.move_slot is not None else Move.NONE
-            move2_id = action2.move_slot if action2.action_type == UserBattleAction.ActionType.USE_MOVE and action2.move_slot is not None else Move.NONE
-            # Convert move slots to actual moves
-            if move1_id != Move.NONE:
-                battler1_move = battler1.moves[move1_id]
-                move1_id = battler1_move if battler1_move != Move.NONE else Move.NONE
-            if move2_id != Move.NONE:
-                battler2_move = battler2.moves[move2_id]
-                move2_id = battler2_move if battler2_move != Move.NONE else Move.NONE
-        else:
-            move1_id = Move.NONE
-            move2_id = Move.NONE
+            # Resolve chosen moves from slots to actual Move values
+            if action1.action_type == UserBattleAction.ActionType.USE_MOVE and action1.move_slot is not None and 0 <= action1.move_slot < len(battler1.moves):
+                move1 = battler1.moves[action1.move_slot]
+            else:
+                move1 = Move.NONE
 
-        priority1 = self._get_move_priority(move1_id)
-        priority2 = self._get_move_priority(move2_id)
+            if action2.action_type == UserBattleAction.ActionType.USE_MOVE and action2.move_slot is not None and 0 <= action2.move_slot < len(battler2.moves):
+                move2 = battler2.moves[action2.move_slot]
+            else:
+                move2 = Move.NONE
+        else:
+            move1 = Move.NONE
+            move2 = Move.NONE
+
+        priority1 = self._get_move_priority(move1)
+        priority2 = self._get_move_priority(move2)
 
         # Priority comparison logic (lines 4722-4741 in C)
         if priority1 != 0 or priority2 != 0:  # At least one has priority

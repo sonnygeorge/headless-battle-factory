@@ -320,7 +320,6 @@ def primary_swagger(battle_state: BattleState) -> None:
         turns = 2 + (r % 4)
         target.status2 = target.status2.remove_confusion() | Status2.confusion_turn(turns)
     # Raise target's Attack by 2 stages (even if confusion didn't apply)
-    stat_changes.lower_stat_target  # to appease lints about unused import in module
     stat_changes.change_stage(target, 1, +2)
 
 
