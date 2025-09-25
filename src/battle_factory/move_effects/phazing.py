@@ -1,14 +1,21 @@
 from src.battle_factory.enums import Ability, Move, Type
 from src.battle_factory.schema.battle_state import BattleState, DisableStruct, ProtectStruct, SpecialStatus
 from src.battle_factory.utils import rng
+from src.battle_factory.constants import MOVE_RESULT_MISSED
 
 
 def primary_phaze(battle_state: BattleState) -> None:
     """Roar/Whirlwind effect: force the target to switch if allowed.
 
+    Faithful implementation matching pokeemerald phazing prevention checks:
+    - Suction Cups ability blocks both Roar and Whirlwind
+    - Soundproof ability blocks Roar specifically (sound-based moves)
+    - STATUS2_ESCAPE_PREVENTION | STATUS2_WRAPPED blocks phazing
+    - STATUS3_ROOTED (Ingrain) blocks phazing
+
     Source:
-    - pokeemerald/data/battle_scripts_1.s (BattleScript_EffectRoar/Whirlwind via EFFECT_ROAR)
-    - pokeemerald/src/battle_script_commands.c (Cmd_effectiveness and phazing conditions)
+    - pokeemerald/src/battle_script_commands.c (Cmd_jumpifcantswitch lines 4708-4710)
+    - pokeemerald/src/battle_main.c (run prevention lines 4072-4073)
     """
     target_id = battle_state.battler_target
     attacker_id = battle_state.battler_attacker
@@ -19,15 +26,20 @@ def primary_phaze(battle_state: BattleState) -> None:
     # Ability checks
     # Suction Cups prevents both Roar and Whirlwind
     if target.ability == Ability.SUCTION_CUPS:
-        battle_state.move_result_flags |= 1  # MOVE_RESULT_MISSED/FAILED bit (approx)
+        battle_state.move_result_flags |= MOVE_RESULT_MISSED
         return
     # Soundproof blocks Roar specifically
     if battle_state.current_move == Move.ROAR and target.ability == Ability.SOUNDPROOF:
-        battle_state.move_result_flags |= 1
+        battle_state.move_result_flags |= MOVE_RESULT_MISSED
         return
-    # Rooted (Ingrain) prevents - approximate with cannot_escape flag
+    # Faithful Emerald implementation: check both escape prevention and rooted status separately
+    # STATUS2_ESCAPE_PREVENTION | STATUS2_WRAPPED (from Mean Look, Block, Wrap, etc.)
     if target.status2.cannot_escape():
-        battle_state.move_result_flags |= 1
+        battle_state.move_result_flags |= MOVE_RESULT_MISSED
+        return
+    # STATUS3_ROOTED (from Ingrain) - separate check as in C code
+    if battle_state.status3_rooted[target_id]:
+        battle_state.move_result_flags |= MOVE_RESULT_MISSED
         return
 
     # Build candidate replacement list from target's party
@@ -49,7 +61,7 @@ def primary_phaze(battle_state: BattleState) -> None:
         candidates.append(slot)
 
     if not candidates:
-        battle_state.move_result_flags |= 1
+        battle_state.move_result_flags |= MOVE_RESULT_MISSED
         return
 
     # Choose random candidate
@@ -57,7 +69,7 @@ def primary_phaze(battle_state: BattleState) -> None:
     chosen_slot = candidates[idx]
     new_mon = party[chosen_slot]
     if new_mon is None:
-        battle_state.move_result_flags |= 1
+        battle_state.move_result_flags |= MOVE_RESULT_MISSED
         return
 
     # Perform the switch into target battler slot

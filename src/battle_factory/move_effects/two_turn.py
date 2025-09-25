@@ -1,10 +1,11 @@
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
 from src.battle_factory.enums import Status2, Weather, SemiInvulnState
-from src.battle_factory.damage_calculator import DamageCalculator
-from src.battle_factory.data.moves import get_move_type
+from src.battle_factory.damage_calculator import DamageCalculator, STAT_STAGE_RATIOS, is_type_physical
+from src.battle_factory.data.moves import get_move_type, get_move_data
 from src.battle_factory.type_effectiveness import TypeEffectiveness
-from src.battle_factory.enums import Move
+from src.battle_factory.enums import Move, Ability, MoveEffect, Type
+from src.battle_factory.constants import STAT_ACC, STAT_EVASION, MOVE_RESULT_MISSED
 from src.battle_factory.utils import rng
 
 
@@ -56,6 +57,72 @@ def resolve_two_turn_damage(battle_state: BattleState) -> None:
     defender = battle_state.battlers[target_id]
     if attacker is None or defender is None or defender.hp <= 0:
         return
+
+    # Perform accuracy roll now, mirroring the regular accuracy check path.
+    # Handle semi-invulnerability exceptions first.
+    if is_target_invulnerable(battle_state):
+        can_hit, dmg_mul = can_hit_through_invulnerability(battle_state)
+        if can_hit:
+            battle_state.damage_multiplier = dmg_mul
+        else:
+            battle_state.move_result_flags |= MOVE_RESULT_MISSED
+            return
+
+    move = battle_state.current_move
+    md = get_move_data(move)
+    if md is None:
+        return
+
+    # Always-hit cases
+    if md.effect in (MoveEffect.ALWAYS_HIT, MoveEffect.VITAL_THROW):
+        pass
+    else:
+        # Lock-On/Mind Reader sure-hit
+        if battle_state.disable_structs[target_id].battlerWithSureHit == attacker_id:
+            pass
+        else:
+            # Thunder weather behavior
+            if md.effect == MoveEffect.THUNDER:
+                if battle_state.weather & 0x1:  # Rain
+                    base_acc = 100
+                elif battle_state.weather & 0x2:  # Sun
+                    base_acc = 50
+                else:
+                    base_acc = md.accuracy
+            else:
+                base_acc = md.accuracy
+
+            if base_acc <= 0:
+                base_acc = 100
+
+            # Apply accuracy/evasion stages
+            acc_stage = attacker.statStages[STAT_ACC]
+            eva_stage = defender.statStages[STAT_EVASION]
+            acc_num, acc_den = STAT_STAGE_RATIOS[acc_stage]
+            # Foresight negates evasion modifiers for the defender
+            if defender.status2.has_foresight():
+                eva_num, eva_den = (10, 10)
+            else:
+                eva_num, eva_den = STAT_STAGE_RATIOS[eva_stage]
+
+            final_acc = base_acc
+            final_acc = final_acc * acc_num // acc_den
+            final_acc = final_acc * eva_den // eva_num
+
+            # Hustle accuracy penalty for physical types
+            move_type_for_acc = md.type if hasattr(md, "type") else get_move_type(move)
+            if attacker.ability == Ability.HUSTLE and is_type_physical(move_type_for_acc):
+                final_acc = (final_acc * 80) // 100
+
+            if final_acc < 1:
+                final_acc = 1
+            if final_acc > 100:
+                final_acc = 100
+
+            roll = rng.rand16(battle_state) % 100 + 1
+            if roll > final_acc:
+                battle_state.move_result_flags |= MOVE_RESULT_MISSED
+                return
 
     calc = DamageCalculator(battle_state)
     move_type = get_move_type(battle_state.current_move)

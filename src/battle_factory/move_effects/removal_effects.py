@@ -1,5 +1,7 @@
 from src.battle_factory.enums import Status2
 from src.battle_factory.schema.battle_state import BattleState
+from src.battle_factory.constants import MOVE_RESULT_MISSED
+
 
 
 def secondary_rapid_spin(battle_state: BattleState) -> None:
@@ -9,7 +11,7 @@ def secondary_rapid_spin(battle_state: BattleState) -> None:
             pokeemerald/data/battle_scripts_1.s (BattleScript_EffectRapidSpin)
     """
     user = battle_state.battler_attacker
-    if (battle_state.move_result_flags & 1) != 0:
+    if (battle_state.move_result_flags & MOVE_RESULT_MISSED) != 0:
         return
     mon = battle_state.battlers[user]
     if mon is not None:
@@ -29,7 +31,7 @@ def secondary_brick_break(battle_state: BattleState) -> None:
     Source: pokeemerald/src/battle_script_commands.c (Cmd_seteffectsecondary, case EFFECT_BRICK_BREAK)
             pokeemerald/data/battle_scripts_1.s (BattleScript_EffectBrickBreak)
     """
-    if (battle_state.move_result_flags & 1) != 0:
+    if (battle_state.move_result_flags & MOVE_RESULT_MISSED) != 0:
         return
     side = battle_state.battler_target % 2
     if battle_state.reflect_timers[side] > 0:

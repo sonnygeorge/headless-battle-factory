@@ -64,6 +64,8 @@ class BattleEngine:
         self.battle_state = BattleState()
         # Internal: track pending Baton Pass source battler id (None if not pending)
         self._pending_baton_pass_from: Optional[int] = None
+        # Snapshot data for Baton Pass transfers (keyed by outgoing battler id)
+        self._baton_pass_snapshot: dict[int, dict] = {}
 
     def initialize_battle(self, player_pokemon: BattlePokemon, opponent_pokemon: BattlePokemon, player_pokemon_2: BattlePokemon | None = None, opponent_pokemon_2: Optional[BattlePokemon] = None, seed: Optional[int] = None) -> None:
         """
@@ -578,6 +580,25 @@ class BattleEngine:
         # If Baton Pass was used by this battler earlier this turn, mark pending transfer.
         if ss.traced:
             self._pending_baton_pass_from = battler_id
+            # Snapshot giver's transferable data before replacing
+            giver = self.battle_state.battlers[battler_id]
+            src_ds = self.battle_state.disable_structs[battler_id]
+            if giver is not None:
+                self._baton_pass_snapshot[battler_id] = {
+                    "statStages": giver.statStages.copy(),
+                    "status2": giver.status2,
+                    "substituteHP": src_ds.substituteHP,
+                    "battlerWithSureHit": src_ds.battlerWithSureHit,
+                    "lockOnTimer": src_ds.lockOnTimer,
+                    "perishSongTimer": src_ds.perishSongTimer,
+                    "perishSongTimerStartValue": src_ds.perishSongTimerStartValue,
+                    "battlerPreventingEscape": src_ds.battlerPreventingEscape,
+                    "status3_rooted": self.battle_state.status3_rooted[battler_id],
+                    "status3_mudsport": self.battle_state.status3_mudsport[battler_id],
+                    "status3_watersport": self.battle_state.status3_watersport[battler_id],
+                    "leech_seed_battler": self.battle_state.special_statuses[battler_id].physicalBattlerId,
+                    "leech_seed_dmg": self.battle_state.special_statuses[battler_id].specialDmg,
+                }
         else:
             self._pending_baton_pass_from = None
 
@@ -592,20 +613,52 @@ class BattleEngine:
         # If a Baton Pass is pending from this side, transfer allowed statuses/stat stages
         src = self._pending_baton_pass_from
         if src is not None and (src % 2) == (battler_id % 2):
-            giver = self.battle_state.battlers[src]
             receiver = self.battle_state.battlers[battler_id]
-            if giver is not None and receiver is not None:
+            snap = self._baton_pass_snapshot.get(src)
+            if receiver is not None and snap is not None:
                 # Transfer stat stages
-                receiver.statStages = giver.statStages.copy()
-                # Transfer Substitute and some volatiles (approximation): Substitute only
-                if giver.status2.has_substitute():
-                    receiver.status2 |= Status2.SUBSTITUTE
-                    # Carry substitute HP via disable_structs
-                    dst_ds = self.battle_state.disable_structs[battler_id]
-                    src_ds = self.battle_state.disable_structs[src]
-                    dst_ds.substituteHP = src_ds.substituteHP
-            # Clear pending flag
+                receiver.statStages = list(snap["statStages"])  # copy
+                # Transfer allowed Status2 bits: CONFUSION, FOCUS_ENERGY, SUBSTITUTE, ESCAPE_PREVENTION, CURSED
+                allowed_status2 = Status2.CONFUSION | Status2.FOCUS_ENERGY | Status2.SUBSTITUTE | Status2.ESCAPE_PREVENTION | Status2.CURSED
+                receiver.status2 |= snap["status2"] & allowed_status2
+
+                # Copy DisableStruct fields relevant to Baton Pass
+                dst_ds = self.battle_state.disable_structs[battler_id]
+                if receiver.status2.has_substitute():
+                    dst_ds.substituteHP = snap["substituteHP"]
+                dst_ds.battlerWithSureHit = snap["battlerWithSureHit"]
+                dst_ds.lockOnTimer = snap["lockOnTimer"]
+                dst_ds.perishSongTimer = snap["perishSongTimer"]
+                dst_ds.perishSongTimerStartValue = snap["perishSongTimerStartValue"]
+                dst_ds.battlerPreventingEscape = snap["battlerPreventingEscape"]
+
+                # Preserve field sport/root flags per battler (STATUS3 analogs)
+                self.battle_state.status3_rooted[battler_id] = snap["status3_rooted"]
+                self.battle_state.status3_mudsport[battler_id] = snap["status3_mudsport"]
+                self.battle_state.status3_watersport[battler_id] = snap["status3_watersport"]
+
+                # Preserve Leech Seed equivalent (stored in SpecialStatus)
+                dst_ss = self.battle_state.special_statuses[battler_id]
+                dst_ss.physicalBattlerId = snap["leech_seed_battler"]
+                dst_ss.specialDmg = snap["leech_seed_dmg"]
+            # Clear pending flag and snapshot
             self._pending_baton_pass_from = None
+            if src in self._baton_pass_snapshot:
+                del self._baton_pass_snapshot[src]
+        else:
+            # Non-Baton Pass switch: clear Status2 volatiles and all per-battler STATUS3 analogs
+            mon_in = self.battle_state.battlers[battler_id]
+            if mon_in is not None:
+                mon_in.status2 = Status2.NONE
+            if 0 <= battler_id < 4:
+                # Clear semi-invuln/minimize and sports/root
+                self.battle_state.status3_on_air[battler_id] = False
+                self.battle_state.status3_underground[battler_id] = False
+                self.battle_state.status3_underwater[battler_id] = False
+                self.battle_state.status3_minimized[battler_id] = False
+                self.battle_state.status3_mudsport[battler_id] = False
+                self.battle_state.status3_watersport[battler_id] = False
+                self.battle_state.status3_rooted[battler_id] = False
 
     def _apply_entry_hazards(self, battler_id: int) -> None:
         """Apply entry hazards (Gen 3: Spikes only) to the battler that just switched in."""

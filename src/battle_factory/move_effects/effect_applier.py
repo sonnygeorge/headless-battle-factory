@@ -20,7 +20,7 @@ from src.battle_factory.move_effects import (
     reaction_moves,
 )
 from src.battle_factory.move_effects.field_effects import SIDE_STATUS_MIST
-from src.battle_factory.constants import WEATHER_DEFAULT_DURATION
+from src.battle_factory.constants import WEATHER_DEFAULT_DURATION, MOVE_RESULT_MISSED, MOVE_RESULT_FAILED
 
 
 def _execute_called_move(battle_state: BattleState, move: Move) -> None:
@@ -60,7 +60,7 @@ def apply_primary(battle_state: BattleState) -> None:
         # Deduct PP via script; execute called move with no PP deduction
         chosen = meta_moves.select_metronome_move(battle_state)
         if chosen == 0:
-            battle_state.move_result_flags |= 1 << 5  # MOVE_RESULT_FAILED
+            battle_state.move_result_flags |= MOVE_RESULT_FAILED
             return
         # Prevent called move from reducing PP
         battle_state.hit_marker |= 1 << 2  # HITMARKER_NO_PPDEDUCT
@@ -72,7 +72,7 @@ def apply_primary(battle_state: BattleState) -> None:
     elif effect == MoveEffect.ASSIST:
         chosen = meta_moves.select_assist_move(battle_state, battle_state.battler_attacker)
         if chosen == 0:
-            battle_state.move_result_flags |= 1 << 5  # MOVE_RESULT_FAILED
+            battle_state.move_result_flags |= MOVE_RESULT_FAILED
             return
         battle_state.hit_marker |= 1 << 2  # HITMARKER_NO_PPDEDUCT
         _execute_called_move(battle_state, chosen)
@@ -88,7 +88,7 @@ def apply_primary(battle_state: BattleState) -> None:
         uid = battle_state.battler_attacker
         if battle_state.disable_structs[uid].isFirstTurn == 0:
             # MOVE_RESULT_FAILED bit
-            battle_state.move_result_flags |= 1 << 5
+            battle_state.move_result_flags |= MOVE_RESULT_FAILED
             return
     if effect == MoveEffect.SLEEP:
         status_effects.primary_sleep(battle_state)
@@ -478,7 +478,7 @@ def apply_secondary(battle_state: BattleState) -> None:
     elif effect == MoveEffect.RECOIL_IF_MISS:
         # Crash damage on miss: apply after accuracy fail path; here we emulate in secondary hook when flagged
         atk = battle_state.battlers[battle_state.battler_attacker]
-        if atk is not None and (battle_state.move_result_flags & 1):  # MOVE_RESULT_MISSED bit 0
+        if atk is not None and (battle_state.move_result_flags & MOVE_RESULT_MISSED):
             # Use 1/2 of would-be damage as crash fallback; Gen 3 uses manipulatedamage DMG_RECOIL_FROM_MISS
             atk.hp = recoil_and_drain.apply_recoil(atk.hp, 1, 2, max(1, battle_state.script_damage))
     elif effect == MoveEffect.RAPID_SPIN:

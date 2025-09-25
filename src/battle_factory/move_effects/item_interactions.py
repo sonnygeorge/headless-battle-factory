@@ -1,5 +1,6 @@
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.enums import Item, Ability
+from src.battle_factory.constants import MOVE_RESULT_MISSED
 
 
 def secondary_knock_off(battle_state: BattleState) -> None:
@@ -8,7 +9,7 @@ def secondary_knock_off(battle_state: BattleState) -> None:
     Source: pokeemerald/src/battle_script_commands.c (Cmd_seteffectsecondary, case EFFECT_KNOCK_OFF)
             pokeemerald/data/battle_scripts_1.s (BattleScript_EffectKnockOff)
     """
-    if (battle_state.move_result_flags & 1) != 0:
+    if (battle_state.move_result_flags & MOVE_RESULT_MISSED) != 0:
         return
     target_id = battle_state.battler_target
     target = battle_state.battlers[target_id]
@@ -33,7 +34,7 @@ def secondary_thief_covet(battle_state: BattleState) -> None:
     Source: pokeemerald/src/battle_script_commands.c (Cmd_seteffectsecondary, case EFFECT_THIEF)
             pokeemerald/data/battle_scripts_1.s (BattleScript_EffectThief)
     """
-    if (battle_state.move_result_flags & 1) != 0:
+    if (battle_state.move_result_flags & MOVE_RESULT_MISSED) != 0:
         return
     attacker_id = battle_state.battler_attacker
     target_id = battle_state.battler_target
@@ -59,7 +60,7 @@ def secondary_trick(battle_state: BattleState) -> None:
     Source: pokeemerald/src/battle_script_commands.c (Cmd_seteffectsecondary, case EFFECT_TRICK)
             pokeemerald/data/battle_scripts_1.s (BattleScript_EffectTrick)
     """
-    if (battle_state.move_result_flags & 1) != 0:
+    if (battle_state.move_result_flags & MOVE_RESULT_MISSED) != 0:
         return
     attacker_id = battle_state.battler_attacker
     target_id = battle_state.battler_target

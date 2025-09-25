@@ -354,6 +354,10 @@ class DamageCalculator:
         # Apply additional ability effects (lines 3202-3227)
         attack, sp_attack, move_power = self._apply_ability_effects(attacker, defender, attack, sp_attack, move_power, move_type)
 
+        # Apply Mud/Water Sport halving at move power stage
+        if self.battle_state is not None:
+            move_power = self._apply_field_sports_power_halving(move_power, move_type)
+
         # Apply Explosion effect (lines 3229-3230)
         if move_data.effect == MoveEffect.EXPLOSION:
             defense //= 2
@@ -563,29 +567,28 @@ class DamageCalculator:
         if weather and not self.battle_state.are_weather_effects_nullified():
             damage = self._apply_weather_effects(damage, move_type, weather)
 
-        # Apply Mud Sport / Water Sport dampening (approximation):
-        # If any active battler has Mud Sport, reduce Electric-type damage by 50%
-        # If any active battler has Water Sport, reduce Fire-type damage by 50%
-        if self.battle_state is not None:
-            if move_type == Type.ELECTRIC:
-                for b in self.battle_state.battlers:
-                    if b is None:
-                        continue
-                    # Find index to check status3 flags
-                    idx = self.battle_state.battlers.index(b)
-                    if 0 <= idx < 4 and self.battle_state.status3_mudsport[idx]:
-                        damage //= 2
-                        break
-            if move_type == Type.FIRE:
-                for b in self.battle_state.battlers:
-                    if b is None:
-                        continue
-                    idx = self.battle_state.battlers.index(b)
-                    if 0 <= idx < 4 and self.battle_state.status3_watersport[idx]:
-                        damage //= 2
-                        break
-
         return damage
+
+    def _apply_field_sports_power_halving(self, move_power: int, move_type: Type) -> int:
+        """
+        Halve move power for Electric/Fire when Mud Sport/Water Sport is active (any battler).
+        Mirrors CalculateBaseDamage checks at lines 3215-3218 in Emerald.
+        """
+        # Electric -> Mud Sport
+        if move_type == Type.ELECTRIC:
+            for i, mon in enumerate(self.battle_state.battlers):
+                if mon is None:
+                    continue
+                if 0 <= i < 4 and self.battle_state.status3_mudsport[i]:
+                    return move_power // 2
+        # Fire -> Water Sport
+        if move_type == Type.FIRE:
+            for i, mon in enumerate(self.battle_state.battlers):
+                if mon is None:
+                    continue
+                if 0 <= i < 4 and self.battle_state.status3_watersport[i]:
+                    return move_power // 2
+        return move_power
 
     def _apply_weather_effects(self, damage: int, move_type: Type, weather: int) -> int:
         """

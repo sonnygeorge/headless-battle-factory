@@ -702,13 +702,21 @@ def primary_refresh(battle_state: BattleState) -> None:
 
 
 def primary_mud_sport(battle_state: BattleState) -> None:
-    """Mud Sport: reduce Electric-type damage while the user is active (approx)."""
+    """Mud Sport: set user's Mud Sport flag; Electric-type move power is halved while active.
+
+    Mirrors pokeemerald Cmd_settypebasedhalvers: sets STATUS3_MUDSPORT on the attacker.
+    Damage halving is applied during damage calculation when any battler has this flag.
+    """
     user = battle_state.battler_attacker
     battle_state.status3_mudsport[user] = True
 
 
 def primary_water_sport(battle_state: BattleState) -> None:
-    """Water Sport: reduce Fire-type damage while the user is active (approx)."""
+    """Water Sport: set user's Water Sport flag; Fire-type move power is halved while active.
+
+    Mirrors pokeemerald Cmd_settypebasedhalvers: sets STATUS3_WATERSPORT on the attacker.
+    Damage halving is applied during damage calculation when any battler has this flag.
+    """
     user = battle_state.battler_attacker
     battle_state.status3_watersport[user] = True
 
