@@ -171,23 +171,48 @@ class BattleEngine:
         if not attacker or action.move_slot is None:
             return False
 
-        # 2. Get move data
-        move = attacker.moves[action.move_slot]
-        if move == Move.NONE or attacker.pp[action.move_slot] <= 0:
+        # 2. Determine the intended move/slot at execution time
+        # Prefer the per-turn chosen slot from state for consistency
+        chosen_slot = self.battle_state.chosen_move_slots[action.battler_id] if 0 <= self.battle_state.chosen_move_slots[action.battler_id] < 4 else action.move_slot
+        if chosen_slot is None:
             return False
+
+        # Encore can force a specific slot if timer active and PP available
+        ds = self.battle_state.disable_structs[action.battler_id]
+        intended_slot = chosen_slot
+        if ds.encoreTimer > 0 and ds.encoredMove != Move.NONE:
+            enc_pos = ds.encoredMovePos
+            if 0 <= enc_pos < 4 and attacker.pp[enc_pos] > 0:
+                intended_slot = enc_pos
+
+        # Fallback: if intended slot is out of range, abort
+        if intended_slot < 0 or intended_slot >= len(attacker.moves):
+            return False
+
+        intended_move = attacker.moves[intended_slot]
+
+        # If intended move is clearly unusable and no other moves are usable, use Struggle
+        if not self._is_move_usable(action.battler_id, intended_move, intended_slot):
+            if not self._any_usable_move(action.battler_id):
+                intended_move = Move.STRUGGLE
+                intended_slot = 0
+                self.battle_state.protect_structs[action.battler_id].noValidMoves = True
+            else:
+                # Early fail if the chosen move became unusable but other moves remain (Gen 3 behavior)
+                return False
 
         # 3. Set battler states (attacker, target)
         self.battle_state.battler_attacker = action.battler_id
         self.battle_state.battler_target = action.target_id if action.target_id is not None else self._get_default_target(action.battler_id)
-        self.battle_state.current_move = move
-        self.battle_state.current_move_slot = action.move_slot
+        self.battle_state.current_move = intended_move
+        self.battle_state.current_move_slot = intended_slot
 
         # Also set script execution context
         self.battle_state.script_attacker = action.battler_id
         self.battle_state.script_target = self.battle_state.battler_target
 
         # 4. Get move effect and appropriate battle script
-        move_effect = get_move_effect(move)
+        move_effect = get_move_effect(intended_move)
 
         script = self.script_library.get_script(move_effect)
 
@@ -197,7 +222,7 @@ class BattleEngine:
             return success
         except Exception as e:
             # Log error and fail gracefully
-            print(f"Error executing move {move}: {e}")
+            print(f"Error executing move {intended_move}: {e}")
             return False
 
     def is_battle_over(self) -> bool:
@@ -275,6 +300,9 @@ class BattleEngine:
         """
         # Reset turn order for this turn
         self.battle_state.turn_order = []
+        # Reset chosen moves for this turn
+        self.battle_state.chosen_moves = [Move.NONE, Move.NONE, Move.NONE, Move.NONE]
+        self.battle_state.chosen_move_slots = [0, 0, 0, 0]
         turn_order_id = 0
 
         # Phase 1: Items and switches go first (lines 4817-4825 in C)
@@ -285,14 +313,19 @@ class BattleEngine:
                 turn_order_id += 1
 
         # Phase 2: Moves go after items/switches (lines 4826-4834 in C)
-        move_actions = []
+        move_actions: list[UserBattleAction] = []
         for action in actions:
             if action.action_type == UserBattleAction.ActionType.USE_MOVE:
                 move_actions.append(action)
 
-        # Add move actions to turn order
+        # Add move actions to turn order and persist chosen moves in state
         for action in move_actions:
             self.battle_state.turn_order.append(action.battler_id)
+            # Persist chosen move (slot -> move id) for priority/ordering usage
+            battler = self.battle_state.battlers[action.battler_id]
+            if battler and action.move_slot is not None and 0 <= action.move_slot < len(battler.moves):
+                self.battle_state.chosen_moves[action.battler_id] = battler.moves[action.move_slot]
+                self.battle_state.chosen_move_slots[action.battler_id] = action.move_slot
             turn_order_id += 1
 
         # Phase 3: Sort move actions by priority and speed (lines 4835-4850 in C)
@@ -313,9 +346,6 @@ class BattleEngine:
         # for move sorting is simply the number of switches.
         move_start_idx = len(self.battle_state.turn_order) - len(move_actions)
 
-        # Create a mapping from battler_id to action for quick lookup
-        action_map = {action.battler_id: action for action in move_actions}
-
         # Bubble sort moves by speed and priority (lines 4835-4850 in C)
         for i in range(move_start_idx, len(self.battle_state.turn_order) - 1):
             for j in range(i + 1, len(self.battle_state.turn_order)):
@@ -323,14 +353,9 @@ class BattleEngine:
                 battler2_id = self.battle_state.turn_order[j]
 
                 # Only sort if both are move actions (not items/switches)
-                action1 = action_map.get(battler1_id)
-                action2 = action_map.get(battler2_id)
-
-                if action1 and action2:
-                    # Use GetWhoStrikesFirst equivalent to determine order
+                if battler1_id in [a.battler_id for a in move_actions] and battler2_id in [a.battler_id for a in move_actions]:
                     # If battler2 should go first, swap them
-                    if not self._get_who_strikes_first(battler1_id, battler2_id, False, action1, action2):
-                        # Swap positions
+                    if not self._get_who_strikes_first(battler1_id, battler2_id, False):
                         self.battle_state.turn_order[i], self.battle_state.turn_order[j] = (self.battle_state.turn_order[j], self.battle_state.turn_order[i])
 
     def _get_who_strikes_first(self, battler1_id: int, battler2_id: int, ignore_chosen_moves: bool = False, action1: Optional[UserBattleAction] = None, action2: Optional[UserBattleAction] = None) -> bool:
@@ -356,17 +381,9 @@ class BattleEngine:
         speed2 = self._calculate_effective_speed(battler2_id)
 
         # Get move priorities (lines 4690-4720 in C)
-        if not ignore_chosen_moves and action1 and action2:
-            # Resolve chosen moves from slots to actual Move values
-            if action1.action_type == UserBattleAction.ActionType.USE_MOVE and action1.move_slot is not None and 0 <= action1.move_slot < len(battler1.moves):
-                move1 = battler1.moves[action1.move_slot]
-            else:
-                move1 = Move.NONE
-
-            if action2.action_type == UserBattleAction.ActionType.USE_MOVE and action2.move_slot is not None and 0 <= action2.move_slot < len(battler2.moves):
-                move2 = battler2.moves[action2.move_slot]
-            else:
-                move2 = Move.NONE
+        if not ignore_chosen_moves:
+            move1 = self._get_chosen_move(battler1_id)
+            move2 = self._get_chosen_move(battler2_id)
         else:
             move1 = Move.NONE
             move2 = Move.NONE
@@ -440,9 +457,60 @@ class BattleEngine:
 
     def _get_chosen_move(self, battler_id: int) -> Move:
         """Get the move chosen by a battler"""
-        # TODO: This needs to be tracked in battle state
-        # For now, return NONE as placeholder
-        return Move.NONE
+        if battler_id < 0 or battler_id >= len(self.battle_state.chosen_moves):
+            return Move.NONE
+        return self.battle_state.chosen_moves[battler_id]
+
+    def _is_move_usable(self, battler_id: int, move: Move, move_slot: int) -> bool:
+        """Check if a move is usable under Disable/Taunt/Torment/Imprison and PP rules."""
+        mon = self.battle_state.battlers[battler_id]
+        if mon is None:
+            return False
+        if move == Move.NONE:
+            return False
+        # PP must be available for normal moves (Struggle is exempt)
+        if move != Move.STRUGGLE:
+            if move_slot < 0 or move_slot >= len(mon.pp) or mon.pp[move_slot] <= 0:
+                return False
+
+        ds = self.battle_state.disable_structs[battler_id]
+        # Disable blocks the disabled move
+        if ds.disableTimer > 0 and ds.disabledMove == move:
+            return False
+
+        # Taunt blocks status moves (power == 0)
+        if ds.tauntTimer > 0:
+            md = get_move_data(move)
+            if md and md.power == 0:
+                return False
+
+        # Torment prohibits repeating the immediately previous move (Struggle bypasses)
+        if self.battle_state.battlers[battler_id].status2.is_tormented() and move != Move.STRUGGLE:
+            if self.battle_state.last_moves[battler_id] == move:
+                return False
+
+        # Imprison: if any opponent has the move sealed, it's unusable
+        attacker_side_is_player = battler_id % 2 == 0
+        for opp in range(4):
+            opp_mon = self.battle_state.battlers[opp]
+            if opp_mon is None:
+                continue
+            if (opp % 2 == 0) == attacker_side_is_player:
+                continue
+            if self.battle_state.imprison_active[opp] and move in self.battle_state.imprison_moves[opp]:
+                return False
+
+        return True
+
+    def _any_usable_move(self, battler_id: int) -> bool:
+        """Return True if the battler has any selectable move, else False."""
+        mon = self.battle_state.battlers[battler_id]
+        if mon is None:
+            return False
+        for slot, mv in enumerate(mon.moves):
+            if self._is_move_usable(battler_id, mv, slot):
+                return True
+        return False
 
     def _get_move_priority(self, move_id: Move) -> int:
         """Get move priority from move data"""
@@ -455,6 +523,11 @@ class BattleEngine:
         """Execute a single action (move or switch)"""
         if action.action_type == UserBattleAction.ActionType.USE_MOVE:
             self.execute_move(action)
+            # After executing a move (success or fail), clear chosen entries for this battler
+            bid = action.battler_id
+            if 0 <= bid < len(self.battle_state.chosen_moves):
+                self.battle_state.chosen_moves[bid] = Move.NONE
+                self.battle_state.chosen_move_slots[bid] = 0
         elif action.action_type == UserBattleAction.ActionType.SWITCH_POKEMON:
             self._execute_switch(action)
 
@@ -488,6 +561,10 @@ class BattleEngine:
 
     def _clear_on_switch_out(self, battler_id: int) -> None:
         """Clear effects that end when the battler leaves the field."""
+        # Clear the per-turn chosen move for this battler (no longer acting this turn)
+        if 0 <= battler_id < len(self.battle_state.chosen_moves):
+            self.battle_state.chosen_moves[battler_id] = Move.NONE
+            self.battle_state.chosen_move_slots[battler_id] = 0
         # End Imprison if user leaves
         self.battle_state.imprison_active[battler_id] = False
         # Reset Rollout/Ice Ball sequence on switch
@@ -509,6 +586,9 @@ class BattleEngine:
         self.battle_state.protect_structs[battler_id] = ProtectStruct()
         self.battle_state.disable_structs[battler_id] = DisableStruct()
         self.battle_state.special_statuses[battler_id] = SpecialStatus()
+        # Reset Flash Fire boost on switch-in
+        if 0 <= battler_id < 4:
+            self.battle_state.flash_fire_boosted[battler_id] = False
         # If a Baton Pass is pending from this side, transfer allowed statuses/stat stages
         src = self._pending_baton_pass_from
         if src is not None and (src % 2) == (battler_id % 2):

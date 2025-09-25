@@ -6,7 +6,7 @@ This implements the same logic as DoFieldEndTurnEffects() and DoBattlerEndTurnEf
 """
 
 from src.battle_factory.enums.end_turn_effects import EndTurnFieldEffect, EndTurnBattlerEffect
-from src.battle_factory.enums import Status1, Status2, Weather, Type
+from src.battle_factory.enums import Status1, Status2, Weather, Type, Move
 from src.battle_factory.schema.battle_state import BattleState
 from src.battle_factory.damage_calculator import DamageCalculator
 from src.battle_factory.data.moves import get_move_data
@@ -516,6 +516,11 @@ class EndTurnEffectsProcessor:
 
             # Clear status conditions on faint (mirrors original behavior)
             self._clear_status_on_faint(battler)
+
+            # Clear chosen move/slot for this battler for the remainder of the turn
+            if 0 <= battler_id < len(self.battle_state.chosen_moves):
+                self.battle_state.chosen_moves[battler_id] = Move.NONE
+                self.battle_state.chosen_move_slots[battler_id] = 0
 
     def _process_future_sight(self) -> None:
         """Apply Future Sight/Doom Desire hits when their counters expire."""

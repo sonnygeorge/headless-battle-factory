@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from src.battle_factory.enums import Move, Weather
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
@@ -307,6 +307,11 @@ class BattleState(BaseModel):
     # Current move being executed (defined above in core flow state)
     current_move_slot: int = Field(ge=0, le=3, default=0)  # Which move slot (0-3) is being used
 
+    # Moves chosen at the start of the turn (before execution), per battler
+    # These are used for priority/ordering and pre-execution checks (e.g., Snatch)
+    chosen_moves: list[Move] = Field(default_factory=lambda: [Move.NONE, Move.NONE, Move.NONE, Move.NONE], min_length=4, max_length=4)
+    chosen_move_slots: list[int] = Field(default_factory=lambda: [0, 0, 0, 0], min_length=4, max_length=4)
+
     # Move result flags (MOVE_RESULT_* constants)
     move_result_flags: int = Field(ge=0, le=255, default=0)
 
@@ -323,6 +328,10 @@ class BattleState(BaseModel):
     status3_mudsport: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
     status3_watersport: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
     status3_rooted: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
+
+    # Ability-derived temporary boosts
+    # Flash Fire: when a battler with Flash Fire is hit by a Fire-type move, their Fire moves gain 1.5x power until they switch out
+    flash_fire_boosted: list[bool] = Field(default_factory=lambda: [False, False, False, False], min_length=4, max_length=4)
 
     # Damage multiplier hook for special cases (e.g., EQ vs Dig)
     damage_multiplier: int = Field(ge=1, le=8, default=1)
@@ -366,6 +375,5 @@ class BattleState(BaseModel):
 
         return False
 
-    class Config:
-        # Allow mutation for battle state updates
-        frozen = False
+    # Pydantic v2 configuration
+    model_config = ConfigDict(frozen=False)

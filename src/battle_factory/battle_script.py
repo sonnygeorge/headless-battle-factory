@@ -395,7 +395,8 @@ class BattleScriptInterpreter:
 
         # Encore forces the last used move if timer active and PP available
         ds = battle_state.disable_structs[attacker_id]
-        if ds.encoreTimer > 0 and ds.encoredMove != Move.NONE:
+        # Do not override if we're forced to Struggle/noValidMoves at execution time
+        if ds.encoreTimer > 0 and ds.encoredMove != Move.NONE and not battle_state.protect_structs[attacker_id].noValidMoves and battle_state.current_move != Move.STRUGGLE:
             # If the chosen move is not the encored one, override to encored move if possible
             enc_pos = ds.encoredMovePos
             if 0 <= enc_pos < 4 and attacker.pp[enc_pos] > 0:
@@ -1072,6 +1073,14 @@ class BattleScriptInterpreter:
 
     def _cmd_seteffectprimary(self, battle_state: BattleState) -> bool:
         """Set primary effect - mirrors Cmd_seteffectprimary()"""
+        # TODO: Pre-exec reactive interception (Magic Coat / Snatch):
+        # - If any opposing battler has protect_structs[..].bounceMove set and the
+        #   current move is MAGIC_COAT_AFFECTED, reflect the effect to the attacker
+        #   per trysetmagiccoat behavior.
+        # - If any opposing battler has protect_structs[..].stealMove set and the
+        #   current move is SNATCH_AFFECTED, transfer the effect user to the snatcher
+        #   per trysetsnatch behavior.
+        # These checks should occur before applying the user's own primary effect.
         effect_applier.apply_primary(battle_state)
         return True
 

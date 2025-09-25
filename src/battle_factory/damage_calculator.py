@@ -17,7 +17,7 @@ from typing import Optional
 from src.battle_factory.schema.battle_pokemon import BattlePokemon
 from src.battle_factory.schema.battle_move import BattleMove
 from src.battle_factory.schema.battle_state import BattleState
-from src.battle_factory.enums import Move, Type, Ability, Item, Status1, Species, Weather
+from src.battle_factory.enums import Move, Type, Ability, Item, Status1, Species, Weather, MoveTarget
 from src.battle_factory.enums.move_effect import MoveEffect
 from src.battle_factory.enums.hold_effect import HoldEffect
 from src.battle_factory.type_effectiveness import TypeEffectiveness
@@ -371,6 +371,7 @@ class DamageCalculator:
                 move_data,
                 weather,
                 move_type,
+                defender_id,
             )
         elif is_type_special(move_type):
             damage = self._calculate_special_damage(
@@ -384,11 +385,17 @@ class DamageCalculator:
                 move_data,
                 weather,
                 move_type,
+                defender_id,
             )
 
         # Mystery type does 0 damage (lines 3284-3285)
         if move_type == Type.MYSTERY:
             damage = 0
+
+        # Flash Fire boost (Gen 3): apply 1.5x to Fire-type moves if attacker is boosted
+        if self.battle_state is not None and move_type == Type.FIRE:
+            if 0 <= attacker_id < 4 and self.battle_state.flash_fire_boosted[attacker_id]:
+                damage = (damage * 15) // 10
 
         return damage + 2  # Add base damage (line 3371)
 
@@ -404,10 +411,28 @@ class DamageCalculator:
         move: BattleMove,
         weather: int,
         move_type: Type,
+        defender_id: int,
     ) -> int:
         """
         Calculate physical damage - mirrors lines 3232-3282
         """
+        # Flash Fire immunity and activation
+        if move_type == Type.FIRE and move.power > 0 and self.battle_state is not None:
+            if defender.ability == Ability.FLASH_FIRE:
+                if 0 <= defender_id < 4:
+                    self.battle_state.flash_fire_boosted[defender_id] = True
+                return 0
+
+        # Volt Absorb / Water Absorb: heal 1/4 max HP and immune to respective types
+        if move_type == Type.ELECTRIC and move.power > 0 and defender.ability == Ability.VOLT_ABSORB:
+            heal = max(1, defender.maxHP // 4)
+            defender.hp = min(defender.maxHP, defender.hp + heal)
+            return 0
+        if move_type == Type.WATER and move.power > 0 and defender.ability == Ability.WATER_ABSORB:
+            heal = max(1, defender.maxHP // 4)
+            defender.hp = min(defender.maxHP, defender.hp + heal)
+            return 0
+
         # Apply stat stages for attack (lines 3234-3243)
         if critical_multiplier == 2:  # Critical hit
             # If attacker has lost attack stages, ignore stat drop
@@ -447,7 +472,13 @@ class DamageCalculator:
             else:
                 damage //= 2
 
-        # TODO: Apply double battle spread move reduction (lines 3275-3277)
+        # Apply double battle spread move reduction (lines 3275-3277)
+        # In doubles, if the move targets both foes (or foes and ally), reduce damage by 50%
+        if self.battle_state is not None and self._is_doubles():
+            md = get_move_data(self.battle_state.current_move)
+            # MoveTarget.BOTH or FOES_AND_ALLY get reduction when hitting multiple
+            if md and md.target in (MoveTarget.BOTH, MoveTarget.FOES_AND_ALLY):
+                damage //= 2
 
         # Minimum damage is 1 (lines 3279-3281)
         if damage == 0:
@@ -467,10 +498,28 @@ class DamageCalculator:
         move: BattleMove,
         weather: int,
         move_type: Type,
+        defender_id: int,
     ) -> int:
         """
         Calculate special damage - mirrors lines 3287-3369
         """
+        # Flash Fire immunity and activation
+        if move_type == Type.FIRE and move.power > 0 and self.battle_state is not None:
+            if defender.ability == Ability.FLASH_FIRE:
+                if 0 <= defender_id < 4:
+                    self.battle_state.flash_fire_boosted[defender_id] = True
+                return 0
+
+        # Volt Absorb / Water Absorb: heal 1/4 max HP and immune to respective types
+        if move_type == Type.ELECTRIC and move.power > 0 and defender.ability == Ability.VOLT_ABSORB:
+            heal = max(1, defender.maxHP // 4)
+            defender.hp = min(defender.maxHP, defender.hp + heal)
+            return 0
+        if move_type == Type.WATER and move.power > 0 and defender.ability == Ability.WATER_ABSORB:
+            heal = max(1, defender.maxHP // 4)
+            defender.hp = min(defender.maxHP, defender.hp + heal)
+            return 0
+
         # Apply stat stages for special attack (lines 3289-3298)
         if critical_multiplier == 2:  # Critical hit
             # If attacker has lost special attack stages, ignore stat drop
@@ -504,13 +553,15 @@ class DamageCalculator:
             else:
                 damage //= 2
 
-        # TODO: Apply double battle spread move reduction (lines 3326-3328)
+        # Apply double battle spread move reduction (lines 3326-3328)
+        if self.battle_state is not None and self._is_doubles():
+            md = get_move_data(self.battle_state.current_move)
+            if md and md.target in (MoveTarget.BOTH, MoveTarget.FOES_AND_ALLY):
+                damage //= 2
 
         # Apply weather effects (lines 3330-3364)
         if weather and not self.battle_state.are_weather_effects_nullified():
             damage = self._apply_weather_effects(damage, move_type, weather)
-
-        # TODO: Apply Flash Fire (lines 3366-3368)
 
         # Apply Mud Sport / Water Sport dampening (approximation):
         # If any active battler has Mud Sport, reduce Electric-type damage by 50%
